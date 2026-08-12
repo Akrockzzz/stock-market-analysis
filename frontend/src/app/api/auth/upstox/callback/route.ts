@@ -36,6 +36,13 @@ export async function GET(request: NextRequest) {
     const data = await response.json();
 
     if (response.ok && data.access_token) {
+      // Forward token to Spring Boot backend for runtime reconnection
+      await fetch('http://localhost:8080/api/auth/upstox/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessToken: data.access_token }),
+      }).catch(console.error);
+
       // Redirect back to dashboard with token status banner flag
       const redirectUrl = new URL('/', request.url);
       redirectUrl.searchParams.set('token_status', 'success');

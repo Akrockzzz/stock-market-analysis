@@ -13,6 +13,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -25,7 +26,7 @@ public class HistoricalDataSyncService {
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    @Value("${upstox.api.v3-base-url:https://api.upstox.com/v2}")
+    @Value("${upstox.api.base-url:https://api.upstox.com/v2}")
     private String baseUrl;
 
     @Value("${upstox.api.access-token:}")
@@ -40,8 +41,11 @@ public class HistoricalDataSyncService {
         }
 
         try {
+            // Upstox v2 format: /v2/historical-candle/{instrumentKey}/{interval}/{toDate}/{fromDate}
             String url = String.format("%s/historical-candle/%s/%s/%s/%s",
-                    baseUrl, instrumentKey, interval, toDate.toString(), fromDate.toString());
+                    baseUrl, instrumentKey, interval,
+                    toDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                    fromDate.format(DateTimeFormatter.ISO_LOCAL_DATE));
 
             HttpHeaders headers = new HttpHeaders();
             headers.setBearerAuth(accessToken);
@@ -56,7 +60,6 @@ public class HistoricalDataSyncService {
 
                 if (candlesNode.isArray()) {
                     for (JsonNode cNode : candlesNode) {
-                        // Upstox candle array format: [timestamp, open, high, low, close, volume, openInterest]
                         String tsStr = cNode.get(0).asText();
                         Instant ts = Instant.parse(tsStr);
 

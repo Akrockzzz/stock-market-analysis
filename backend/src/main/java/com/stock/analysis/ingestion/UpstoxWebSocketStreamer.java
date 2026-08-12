@@ -112,8 +112,8 @@ public class UpstoxWebSocketStreamer {
         try {
             String jsonKeys = String.join("\",\"", keys);
             String subJson = String.format("{\"guid\":\"sub_req\",\"method\":\"%s\",\"data\":{\"mode\":\"full\",\"instrumentKeys\":[\"%s\"]}}", action, jsonKeys);
-            webSocketClient.send(subJson);
-            log.info("Sent WebSocket subscription action '{}' for keys: {}", action, keys);
+            webSocketClient.send(subJson.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            log.info("Sent binary WebSocket subscription frame action '{}' for keys: {}", action, keys);
         } catch (Exception e) {
             log.error("Error sending WebSocket subscription frame", e);
         }
