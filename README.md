@@ -1,0 +1,386 @@
+# Real-Time Stock Market Analysis Platform
+
+A high-performance, production-grade real-time stock market analysis platform built with **Java 17/21 & Spring Boot 3.3** on the backend, **MySQL 8.0** for relational persistence, and **Next.js 14 / React 18 / TradingView Lightweight Charts** on the frontend. The platform integrates with the official **Upstox Developer API (V3 WebSocket Feed & V2/V3 REST APIs)** for licensed Indian equity and F&O market data (NSE & BSE).
+
+---
+
+## 📋 Table of Contents
+
+- [Vision \& Core Philosophy](#-vision--core-philosophy)
+- [Core Design Principles](#-core-design-principles)
+- [Upstox API Pricing \& Segment Notice](#-upstox-api-pricing--segment-notice)
+- [Technology Stack](#-technology-stack)
+- [High-Level System Architecture](#-high-level-system-architecture)
+- [Data Domains \& Ingestion Pipeline](#-data-domains--ingestion-pipeline)
+- [Database Schema \& Persistence](#-database-schema--persistence)
+- [Analysis Engine \& Mathematical Models](#-analysis-engine--mathematical-models)
+  - [1. Technical Analysis Engine](#1-technical-analysis-engine)
+  - [2. Option Analytics Engine](#2-option-analytics-engine)
+  - [3. 22-Category / 50-Point Stock Scoring Engine](#3-22-category--50-point-stock-scoring-engine)
+  - [4. Fundamental Analysis \& Ratios](#4-fundamental-analysis--ratios)
+- [Upstox API Integration \& Token Setup Guide](#-upstox-api-integration--token-setup-guide)
+  - [Step 1: Create Your Developer App](#step-1-create-your-developer-app)
+  - [Step 2: Generate Credentials \& Access Token](#step-2-generate-credentials--access-token)
+  - [Step 3: Troubleshooting "No Segments Active" Error](#step-3-troubleshooting-no-segments-active-error)
+- [Step-by-Step Execution Guide](#-step-by-step-execution-guide)
+  - [Prerequisites](#prerequisites)
+  - [Method 1: Local Development Setup (Recommended)](#method-1-local-development-setup-recommended)
+  - [Method 2: Docker Compose Setup](#method-2-docker-compose-setup)
+- [REST API Reference](#-rest-api-reference)
+- [Testing \& Verification Strategy](#-testing--verification-strategy)
+- [SEBI Compliance \& Disclaimer](#-sebi-compliance--disclaimer)
+
+---
+
+## 🎯 Vision & Core Philosophy
+
+This platform is engineered as a unified analytical workspace replacing the need to juggle separate tools like NSE India, Screener.in, TradingView, and broker terminals. It combines:
+
+1. **Live Market Data**: Real-time tick prices, volumes, Open Interest (OI), and option chain matrices.
+2. **Fundamental Analysis**: Automated retrieval and evaluation of revenue growth, margins, return ratios (ROE/ROCE), cash flow quality, debt levels, shareholding trends, and governance checks.
+3. **Technical Analysis**: 20/50/200 EMA alignment, RSI (14), MACD (12, 26, 9), and dynamic Pivot Point Support & Resistance detection.
+4. **Structured Decision Framework**: A 22-category, 50-point checklist system that transforms complex qualitative and quantitative data into an objective Buy/Hold/Sell assessment.
+
+> [!IMPORTANT]
+> **SEBI Guidance Alignment:** This platform is explicitly **not a stock tip generator** or automated signal system. Per SEBI guidance, it surfaces structured analytical frameworks and verified data to assist your personal decision-making. You make the final investment call.
+
+---
+
+## 🛡️ Core Design Principles
+
+1. **Honest Connection State Guarantee**: The system never presents synthetic or fabricated numbers as live data. Every UI screen displays one of three explicit system states:
+   - `LIVE`: Sub-second live WebSocket stream active during NSE market hours (09:15 - 15:30 IST).
+   - `HISTORICAL_ONLY`: Market closed or API stream idle; displaying last verified EOD candle data.
+   - `NOT_CONNECTED`: Upstox API token unconfigured or expired; prompts user setup without showing fake charts.
+2. **Fail Loud Exception Strategy**: If a metric (e.g., P/E, Put-Call Ratio, Max Pain, IV) cannot be computed due to missing data, the backend throws a typed `MarketDataUnavailableException` instead of returning `0.0` or `null` which silently poisons downstream calculations.
+3. **2-Tier LRU Subscription Management**: Enforces broker token caps (Upstox WebSocket stream limits) via a two-tier Least Recently Used (LRU) eviction engine:
+   - **Tier 1 (Watchlists)**: Subscribes to spot quotes; evicts least recently used tokens when approaching limits.
+   - **Tier 2 (Option Chain)**: Subscribes to full option strike contracts only while an option chain view is open.
+4. **Separation of Ephemeral and Fundamental Data**: Ephemeral high-frequency market ticks reside in an in-memory Caffeine cache and lightweight persistence tables, whereas quarterly/annual fundamentals are cached and refreshed on a schedule.
+
+---
+
+## ⚡ Upstox API Pricing & Segment Notice
+
+> [!NOTE]
+> **Broker Data Source:** Upstox Developer API (NSE Equity + F&O).
+> Upstox currently offers **free market data & trading APIs** for developers (standing offer valid through **31 March 2026**). Always verify active developer terms on the Upstox Developer portal.
+
+---
+
+## 🛠️ Technology Stack
+
+### Backend Framework & Architecture
+- **Language**: Java 17 / Java 21
+- **Framework**: Spring Boot 3.3.2
+- **Data Access**: Spring Data JPA / Hibernate 6
+- **Database**: MySQL 8.0 (with H2 in-memory option for quick testing)
+- **Caching**: Caffeine Cache (in-process spot tick & ratio caching)
+- **Real-Time Streaming Protocol**: Upstox Market Data Feed V3 (Protobuf V3 encoded binary WebSockets via `org.java-websocket`)
+- **Server-to-Client Transport**: Spring WebSocket STOMP (`/ws-stomp`)
+- **Resilience**: Resilience4j Circuit Breakers around external API calls
+- **Build Tool**: Apache Maven 3.8+
+
+### Frontend Architecture & Styling
+- **Framework**: Next.js 14.2.15 (App Router, Server & Client Components)
+- **UI Core**: React 18.3.1
+- **Language**: TypeScript 5.6.3
+- **Styling**: Tailwind CSS 3.4.17 (Glassmorphism dark theme, smooth micro-animations)
+- **Interactive Charting**: TradingView Lightweight Charts 4.2.1 (Candlesticks, EMAs, RSI, MACD)
+- **Data Visualization**: Recharts 2.13.3 & Custom SVG Gauges
+- **Icons**: Lucide React 0.468.0
+- **WebSocket Client**: `@stomp/stompjs` 7.0.0 & `sockjs-client` 1.6.1
+
+---
+
+## 🏗️ High-Level System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           Upstox Developer API                              │
+│ - Protobuf V3 WebSocket Stream (Sub-second Live Ticks, Volume, Open Interest)│
+│ - REST API V2/V3 (Auth, Instruments Master, Historical Candles, Option Chain)│
+└─────────────────────────────────────┬───────────────────────────────────────┘
+                                      │ Binary Protobuf / JSON
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     Spring Boot 3.3 Backend (Java 21)                       │
+│                                                                             │
+│  ┌─────────────────────────┐ ┌──────────────────────┐ ┌──────────────────┐ │
+│  │ Upstox WebSocket Stream │ │ LruSubscriptionManager│ │ MarketHoursUtil  │ │
+│  │ (Protobuf Streamer)     │ │ (2-Tier LRU Engine)  │ │ (NSE Session)    │ │
+│  └────────────┬────────────┘ └──────────┬───────────┘ └────────┬─────────┘ │
+│               │                         │                      │           │
+│               ▼                         ▼                      ▼           │
+│  ┌───────────────────────────────────────────────────────────────────────┐ │
+│  │                            Analysis Engine                            │ │
+│  │ - Technical Indicators (EMA 20/50/200, RSI 14, MACD, Pivot S/R)       │ │
+│  │ - Option Analytics (PCR, Max Pain Calculation, ATM Strike, OI Map)    │ │
+│  │ - 22-Category Stock Scoring Engine (/50 pts, Qualitative & Quant)     │ │
+│  └──────────────────────────────────┬────────────────────────────────────┘ │
+│                                     │                                       │
+│                                     ▼                                       │
+│  ┌───────────────────────────────────────────────────────────────────────┐ │
+│  │                       Data & Resilience Layer                         │ │
+│  │ - MySQL Database (`stockdb`) via Spring Data JPA                      │ │
+│  │ - Caffeine In-Memory Spot Price & Option Snapshot Cache               │ │
+│  │ - Resilience4j Circuit Breakers & MarketDataUnavailableExceptions     │ │
+│  └──────────────────────────────────┬────────────────────────────────────┘ │
+└─────────────────────────────────────┼───────────────────────────────────────┘
+                                      │ STOMP / WebSocket (`ws-stomp`)
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        Frontend Application (Next.js)                       │
+│ - Real-Time Connection State Banner (LIVE / HISTORICAL_ONLY / NOT_CONNECTED)│
+│ - TradingView Lightweight Charts (Interactive 1D Candlesticks & Overlays)   │
+│ - Live Option Chain Matrix (Call/Put OI Bars, IV, PCR Gauge, Max Pain)       │
+│ - 22-Category Scorecard Worksheet (/50 Scale, Auto-Totaling & Thesis)       │
+│ - Fundamentals Panel (5-Yr Revenue CAGR, ROE/ROCE, Debt, Pledge, Red Flags) │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 📡 Data Domains & Ingestion Pipeline
+
+| Domain | Source Endpoint / Transport | Cache & Refresh Cadence | Purpose |
+|---|---|---|---|
+| Live Ticks (LTP, Volume, OI) | Upstox Market Data V3 Protobuf WS Stream | Caffeine Cache (sub-second flush) | Watchlist & live quote streaming |
+| Historical Candles | Upstox REST Historical API (`/v2/historical-candle`) | MySQL `candles` table (EOD backfill) | Technical indicators & TradingView charts |
+| Instrument Master | Upstox Daily Dump (`CSV/JSON`) | MySQL `instruments` table (daily startup sync) | Token mapping, lot sizes, strike intervals |
+| Option Chain Matrix | Upstox REST Option Chain + Full V3 Feed | Caffeine Cache (2-min TTL per expiry) | PCR, Max Pain, ATM Strike calculation |
+| Fundamentals | Upstox Market Data Fundamentals API | MySQL `fundamentals` table (quarterly/annual) | Revenue CAGR, Margins, ROE/ROCE, Debt, Pledge |
+| Scorecard Records | User Inputs & Calculated Metrics | MySQL `stock_scorecards` table (persistent) | 22-category score tracking & investment thesis |
+
+---
+
+## 🗄️ Database Schema & Persistence
+
+The project utilizes Spring Data JPA with a MySQL 8.0 backend (`stockdb` database). Primary entities include:
+
+- **`instruments`**: Maps exchange symbols (`NSE_EQ`, `NSE_FO`), lot sizes, strike prices, expiry dates, and underlying security tokens.
+- **`ticks`**: Stores ephemeral market ticks (LTP, bid/ask, volume, Open Interest) indexed by symbol and timestamp.
+- **`candles`**: Stores historical OHLCV data across interval granularities (`1m`, `5m`, `15m`, `1d`).
+- **`option_chain_snapshots`**: Records spot price, ATM strike, PCR ratio, Max Pain strike, and raw strike matrix JSON snapshots.
+- **`fundamentals`**: Stores financial metrics including revenue, net profit, EBITDA margins, ROE, ROCE, debt-to-equity, cash flow, promoter pledge %, and governance flags.
+- **`stock_scorecards`**: Stores symbol ratings across all 22 categories, calculated total score out of 50.0, assigned recommendation band, investment thesis, and pre-defined exit rules.
+
+---
+
+## 🧮 Analysis Engine & Mathematical Models
+
+### 1. Technical Analysis Engine
+Implemented in [TechnicalAnalysisService.java](file:///f:/Stock%20Market%20Analysis/backend/src/main/java/com/stock/analysis/engine/TechnicalAnalysisService.java):
+
+- **Exponential Moving Average (EMA)**:
+  $$\text{EMA}_{\text{today}} = \left(\text{Price}_{\text{today}} \times \frac{2}{N+1}\right) + \left(\text{EMA}_{\text{yesterday}} \times \left(1 - \frac{2}{N+1}\right)\right)$$
+  Computes 20-period, 50-period, and 200-period EMAs over historical candle close prices.
+- **Relative Strength Index (RSI 14)**:
+  $$\text{RS} = \frac{\text{Smooth Avg Gain}}{\text{Smooth Avg Loss}}, \quad \text{RSI} = 100 - \left(\frac{100}{1 + \text{RS}}\right)$$
+  Evaluates overbought ($>70$) and oversold ($<30$) momentum.
+- **MACD (12, 26, 9)**: Calculates MACD line ($\text{EMA}_{12} - \text{EMA}_{26}$), Signal line (9-period EMA of MACD), and MACD Histogram.
+- **Floor Pivot Points**:
+  $$\text{Pivot (P)} = \frac{\text{High} + \text{Low} + \text{Close}}{3}$$
+  $$\text{R1} = (2 \times P) - \text{Low}, \quad \text{S1} = (2 \times P) - \text{High}$$
+  $$\text{R2} = P + (\text{High} - \text{Low}), \quad \text{S2} = P - (\text{High} - \text{Low})$$
+
+---
+
+### 2. Option Analytics Engine
+Implemented in [OptionChainAnalysisService.java](file:///f:/Stock%20Market%20Analysis/backend/src/main/java/com/stock/analysis/engine/OptionChainAnalysisService.java):
+
+- **Put-Call Ratio (PCR)**:
+  $$\text{PCR} = \frac{\sum \text{Put Open Interest}}{\sum \text{Call Open Interest}}$$
+  - $\text{PCR} > 1.2$: Bullish sentiment / strong put writing support.
+  - $\text{PCR} < 0.7$: Bearish sentiment / call writing resistance.
+- **Max Pain Strike Algorithm**:
+  Identifies the strike price at which option buyers collectively suffer maximum financial loss upon expiry (i.e. minimum payout by option writers):
+  $$\text{Total Writer Loss}(K_{\text{eval}}) = \sum_{K} \left( \max(0, K_{\text{eval}} - K) \times \text{Call OI}_K \right) + \sum_{K} \left( \max(0, K - K_{\text{eval}}) \times \text{Put OI}_K \right)$$
+  The strike $K_{\text{eval}}$ minimizing $\text{Total Writer Loss}$ is designated as the **Max Pain Strike**.
+
+---
+
+### 3. 22-Category / 50-Point Stock Scoring Engine
+Implemented in [ScorecardEvaluationService.java](file:///f:/Stock%20Market%20Analysis/backend/src/main/java/com/stock/analysis/engine/ScorecardEvaluationService.java) and [ScoringCategory.java](file:///f:/Stock%20Market%20Analysis/backend/src/main/java/com/stock/analysis/enums/ScoringCategory.java):
+
+Each category is rated from `0.0` (Worst) to `5.0` (Best) and multiplied by its assigned weight to normalize the final score to a maximum of **50.0 points**:
+
+| # | Category Name | Weight | Evaluation Criteria |
+|---|---|---|---|
+| 1 | Business Model Understandability | 2.5 | Clarity of business model, industry dynamics, and revenue sources |
+| 2 | Revenue Growth Consistency | 2.5 | 5-Year Revenue CAGR $>12\%$ with minimal annual volatility |
+| 3 | Operating & Net Margins | 2.5 | Stable or expanding EBITDA ($>18\%$) and Net Profit margins |
+| 4 | ROE & ROCE Performance | 2.5 | Return on Equity & Return on Capital Employed consistently $>15\%$ |
+| 5 | Balance Sheet & Debt | 2.5 | Debt-to-Equity $<0.5$ or net debt-free cash surplus balance sheet |
+| 6 | Cash Flow Conversion | 2.5 | Operating Cash Flow to Net Profit ratio $\ge 0.8$ |
+| 7 | Capital Allocation Quality | 2.5 | High ROIC reinvestment quality and disciplined dividend policy |
+| 8 | Management & Promoter Integrity | 2.5 | Clean corporate governance track record without legal disputes |
+| 9 | Promoter Holding & Pledge | 2.5 | Promoter shareholding $>50\%$ with zero or minimal pledged shares |
+| 10 | Institutional Holding (FII/DII) | 2.0 | Stable or increasing institutional sponsorship |
+| 11 | Economic Moat | 2.5 | Brand power, high switching costs, or cost leadership moat |
+| 12 | Working Capital Efficiency | 2.0 | Controlled receivable days and inventory turnover |
+| 13 | Valuation Multiples | 2.5 | Fair P/E, P/B, EV/EBITDA relative to historical median & peers |
+| 14 | Intrinsic Value Margin of Safety | 2.5 | Minimum $20\%$ discount between market price and DCF fair value |
+| 15 | Contingent Liabilities Check | 2.0 | Contingent liabilities $<10\%$ of net worth, clean auditor notes |
+| 16 | Governance Red Flags | 2.5 | Absence of related party transactions, frequent auditor resignations, or equity dilution |
+| 17 | Moving Average Alignment | 2.0 | Price positioned above 20, 50, and 200 EMAs in bullish sequence |
+| 18 | Technical Momentum (RSI/MACD) | 2.0 | RSI between 45–65, MACD histogram crossing above signal line |
+| 19 | Volume & Price Action | 2.0 | High volume on green breakout days, low volume on pullbacks |
+| 20 | Risk-to-Reward Ratio | 2.0 | Defined setup presenting a minimum $1 : 2.5$ Risk-to-Reward ratio |
+| 21 | Position Sizing & Sector Cap | 2.0 | Maximum portfolio single-stock cap ($<8\%$) and sector cap ($<25\%$) |
+| 22 | Thesis & Pre-defined Exit Rules | 2.0 | Documented buying thesis and explicit qualitative/technical exit triggers |
+
+#### Score Interpretation & Recommendation Bands
+- **`40.0 - 50.0 PTS`**: **STRONG BUY CANDIDATE** (High-quality compounder with strong margin of safety)
+- **`30.0 - 39.9 PTS`**: **HOLD / ACCUMULATE** (Good business model; watch valuation or entry price)
+- **`< 30.0 PTS`**: **HIGH RISK / AVOID** (Fails fundamental, governance, or technical thresholds)
+
+---
+
+### 4. Fundamental Analysis & Ratios
+Implemented in [FundamentalsPanel.tsx](file:///f:/Stock%20Market%20Analysis/frontend/src/components/FundamentalsPanel.tsx) and [FundamentalsController.java](file:///f:/Stock%20Market%20Analysis/backend/src/main/java/com/stock/analysis/controller/FundamentalsController.java):
+
+- **5-Year Revenue CAGR & Net Profit**: Evaluates long-term earnings expansion.
+- **ROE & ROCE**: Tracks capital efficiency.
+- **Debt-to-Equity**: Highlights leverage risks ($<0.5$ green badge, $>1.0$ red alert).
+- **OCF to Net Profit Ratio**: Audits earnings quality (detects aggressive accrual accounting).
+- **Promoter Pledge Percentage**: Flagged red if promoter pledging $>0\%$.
+- **Governance Status**: Displays explicit audit clearance badge or red flag warning.
+
+---
+
+## 🔑 Upstox API Integration & Token Setup Guide
+
+### Step 1: Create Your Developer App
+1. Go to the [Upstox Developer Console](https://upstox.com/developer/).
+2. Log in with your Upstox trading credentials.
+3. Click **`Manage API Apps`** ➔ **`+ App`** (Create New App).
+4. Enter the details:
+   - **App Name**: `Stock Analysis App`
+   - **Redirect URL**: `http://localhost:3000/api/auth/upstox/callback`
+5. Click **Confirm / Create App**. Upstox will display your **API Key** and **API Secret**.
+
+### Step 2: Generate Credentials & Access Token
+1. In your app details, click the purple **`Generate`** button next to **Access Token**.
+2. Copy the generated API Key, API Secret, and Access Token into your [application.yml](file:///f:/Stock%20Market%20Analysis/backend/src/main/resources/application.yml#L25-L28):
+
+```yaml
+upstox:
+  api:
+    base-url: https://api.upstox.com/v2
+    v3-base-url: https://api.upstox.com/v3
+    ws-feed-url: wss://api.upstox.com/v3/feed/market-data-feed
+    api-key: ${UPSTOX_API_KEY:YOUR_UPSTOX_API_KEY}
+    api-secret: ${UPSTOX_API_SECRET:YOUR_UPSTOX_API_SECRET}
+    redirect-uri: ${UPSTOX_REDIRECT_URI:http://localhost:3000/api/auth/upstox/callback}
+    access-token: ${UPSTOX_ACCESS_TOKEN:YOUR_GENERATED_ACCESS_TOKEN}
+```
+
+### Step 3: Troubleshooting "No Segments Active" Error
+If Upstox displays:
+> *"No segments for these users are active. Manual reactivation is recommended from Upstox app/web."*
+
+**Resolution:**
+1. Open the Upstox Mobile App or go to [pro.upstox.com](https://pro.upstox.com).
+2. Go to **Profile** ➔ **My Account** ➔ **Segments**.
+3. Re-activate **NSE Equity** and **NSE F&O** via OTP verification.
+4. Once active, return to the Upstox Developer portal and click **`Generate`** again.
+
+> [!TIP]
+> The platform runs completely even without an active live WebSocket token! All charts, indicators, scorecards, and fundamentals remain fully functional in `HISTORICAL_ONLY` mode.
+
+---
+
+## 🚀 Step-by-Step Execution Guide
+
+### Prerequisites
+- **Java**: JDK 17 or 21 installed (`java -version`)
+- **Maven**: Apache Maven 3.8+ (`mvn -v`)
+- **Node.js**: Node v20+ (`node -v`) & NPM 10+ (`npm -v`)
+- **MySQL**: MySQL 8.0+ running on port `3306`
+
+---
+
+### Method 1: Local Development Setup (Recommended)
+
+#### 1. Start MySQL Server
+Ensure MySQL server is running on port `3306` with credentials matching [application.yml](file:///f:/Stock%20Market%20Analysis/backend/src/main/resources/application.yml):
+- **Database Name**: `stockdb` (auto-created on startup)
+- **Username**: `root`
+- **Password**: `091221ak`
+
+#### 2. Build & Launch Spring Boot Backend
+Open a terminal in the workspace root:
+```powershell
+cd backend
+mvn spring-boot:run
+```
+- **Backend Port**: `http://localhost:8080`
+- **Health Check**: `http://localhost:8080/api/market/status`
+
+#### 3. Build & Launch Next.js Frontend
+Open a second terminal in the workspace root:
+```powershell
+cd frontend
+npm run dev
+```
+- **Frontend App**: Open `http://localhost:3000` in your browser.
+
+---
+
+### Method 2: Docker Compose Setup
+
+If you have Docker Desktop installed, you can start MySQL 8.0, Spring Boot backend, and Next.js frontend in containerized mode:
+
+```powershell
+docker compose up -d
+```
+
+To stop containers:
+```powershell
+docker compose down
+```
+
+---
+
+## 🔌 REST API Reference
+
+| Method | Endpoint | Description | Sample Response |
+|---|---|---|---|
+| `GET` | `/api/market/status` | Current system stream health state (`LIVE`, `HISTORICAL_ONLY`, `NOT_CONNECTED`) | `{"source":"UPSTOX_V3_FEED","state":"HISTORICAL_ONLY","message":"..."}` |
+| `GET` | `/api/market/ticks/{symbol}` | Latest spot tick (LTP, Volume, OI, Bid, Ask) | `{"symbol":"RELIANCE","ltp":2950.5,"volume":1250000}` |
+| `GET` | `/api/market/candles/{symbol}?interval=1d` | Historical OHLCV candle sequence | `[{"timestamp":"...","open":2900,"high":2960,"low":2890,"close":2950}]` |
+| `GET` | `/api/analysis/technicals/{symbol}` | Calculated EMAs, RSI(14), MACD, and Pivot S/R levels | `{"symbol":"RELIANCE","ema20":2910.4,"rsi14":58.2,"pivotPoint":2933.3}` |
+| `GET` | `/api/analysis/option-chain/{symbol}` | Option chain matrix, PCR ratio, ATM strike, Max Pain strike | `{"spotPrice":24500,"atmStrike":24500,"putCallRatio":1.15,"maxPainStrike":24400}` |
+| `GET` | `/api/fundamentals/{symbol}` | Financial statements, margins, ROE/ROCE, pledge %, governance check | `{"symbol":"RELIANCE","revenueCagr5Yr":18.5,"roePct":21.2,"debtToEquity":0.12}` |
+| `GET` | `/api/scorecard/{symbol}` | Saved 22-category scorecard, total score, and assigned band | `{"symbol":"RELIANCE","totalScore":42.5,"recommendationBand":"STRONG BUY CANDIDATE"}` |
+| `POST` | `/api/scorecard/{symbol}` | Evaluates category ratings (0-5), calculates total score (/50), saves thesis | Request body containing ratings map, thesis string, and exit rules |
+
+---
+
+## 🧪 Testing & Verification Strategy
+
+The backend includes a comprehensive JUnit 5 test suite verifying all mathematical calculations and loud-failure exceptions:
+
+```powershell
+cd backend
+mvn test
+```
+
+### Verified Test Suite:
+1. **`TechnicalAnalysisServiceTest`**:
+   - Asserts `MarketDataUnavailableException` thrown on insufficient candle history ($<14$ candles).
+   - Validates mathematical accuracy of RSI 14 bounded between $[0, 100]$, 20-period EMA, and floor pivot levels.
+2. **`OptionChainAnalysisServiceTest`**:
+   - Asserts `MarketDataUnavailableException` thrown on invalid spot prices ($\le 0$) or zero Call Open Interest.
+   - Verifies accurate determination of ATM strike, Put-Call Ratio (PCR), and Max Pain Strike minimization.
+3. **`ScorecardEvaluationServiceTest`**:
+   - Tests perfect category score evaluation ($5.0/5.0$ rating per category $\rightarrow$ exact $50.0/50.0$ total points) mapping to `STRONG BUY CANDIDATE`.
+   - Tests low category score evaluation ($2.0/5.0$ rating per category $\rightarrow$ exact $20.0/50.0$ total points) mapping to `HIGH RISK / AVOID`.
+
+---
+
+## ⚖️ SEBI Compliance & Disclaimer
+
+> [!CAUTION]
+> **Legal Disclaimer:** This software application is built strictly as a personal decision-support framework and financial analysis platform. It **does not** provide SEBI-registered investment advice, stock tips, or automated trading recommendations. Financial markets involve substantial risk of loss. Always conduct independent research and consult a SEBI-registered financial advisor before executing trades.

@@ -1,0 +1,45 @@
+spring:
+  application:
+    name: stock-market-analysis-backend
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/stockdb?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Kolkata}
+    driverClassName: com.mysql.cj.jdbc.Driver
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD:091221ak}
+  jpa:
+    database-platform: org.hibernate.dialect.MySQLDialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate.format_sql: true
+
+server:
+  port: 8080
+
+upstox:
+  api:
+    base-url: https://api.upstox.com/v2
+    v3-base-url: https://api.upstox.com/v3
+    ws-feed-url: wss://api.upstox.com/v3/feed/market-data-feed
+    api-key: ${UPSTOX_API_KEY:5e09cf85-7d68-4ed1-8700-c503c2e04f10}
+    api-secret: ${UPSTOX_API_SECRET:8oy8qfxjhi}
+    redirect-uri: ${UPSTOX_REDIRECT_URI:http://localhost:3000/api/auth/upstox/callback}
+    access-token: ${UPSTOX_ACCESS_TOKEN:}
+  subscription:
+    tier1-max-tokens: 2500
+    tier2-max-tokens: 500
+    idle-eviction-minutes-tier1: 15
+    idle-eviction-minutes-tier2: 2
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      upstoxApi:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 10s
+        failureRateThreshold: 50
