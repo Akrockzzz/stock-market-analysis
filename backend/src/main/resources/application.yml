@@ -22,8 +22,8 @@ upstox:
     base-url: https://api.upstox.com/v2
     v3-base-url: https://api.upstox.com/v3
     ws-feed-url: wss://api.upstox.com/v3/feed/market-data-feed
-    api-key: ${UPSTOX_API_KEY:5e09cf85-7d68-4ed1-8700-c503c2e04f10}
-    api-secret: ${UPSTOX_API_SECRET:8oy8qfxjhi}
+    api-key: ${UPSTOX_API_KEY:}
+    api-secret: ${UPSTOX_API_SECRET:}
     redirect-uri: ${UPSTOX_REDIRECT_URI:http://localhost:3000/api/auth/upstox/callback}
     access-token: ${UPSTOX_ACCESS_TOKEN:}
   subscription:

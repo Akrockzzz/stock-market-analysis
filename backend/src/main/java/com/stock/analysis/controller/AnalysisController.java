@@ -15,7 +15,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 @RestController
@@ -31,14 +31,16 @@ public class AnalysisController {
 
     @GetMapping("/technicals/{symbol}")
     public ResponseEntity<TechnicalAnalysisDto> getTechnicals(@PathVariable String symbol) {
-        List<Candle> candles = candleRepository.findRecentCandles(symbol, "1d", PageRequest.of(0, 200));
-        
-        // If DB has no candles yet for new symbol, return simulated/mock structure for quick initial verification
+        List<Candle> candles = candleRepository.findRecentCandles(symbol.toUpperCase(), "1d", PageRequest.of(0, 200));
+
         if (candles.isEmpty()) {
-            candles = generateSampleCandles(symbol);
+            throw new MarketDataUnavailableException(
+                    symbol.toUpperCase(),
+                    "Technicals",
+                    "No historical candle data found in database. Trigger historical backfill service.");
         }
-        
-        TechnicalAnalysisDto dto = technicalAnalysisService.calculateTechnicals(symbol, candles);
+
+        TechnicalAnalysisDto dto = technicalAnalysisService.calculateTechnicals(symbol.toUpperCase(), candles);
         return ResponseEntity.ok(dto);
     }
 
@@ -46,56 +48,27 @@ public class AnalysisController {
     public ResponseEntity<OptionChainAnalysisDto> getOptionChain(
             @PathVariable String symbol,
             @RequestParam(required = false) Double spotPrice) {
-        
+
         Double currentSpot = spotPrice;
         if (currentSpot == null) {
-            currentSpot = spotPriceCacheService.getLatestTick(symbol)
+            currentSpot = spotPriceCacheService.getLatestTick(symbol.toUpperCase())
                     .map(Tick::getLtp)
-                    .orElse(24500.0); // Default NIFTY spot reference if cache empty
+                    .orElseThrow(() -> new MarketDataUnavailableException(
+                            symbol.toUpperCase(),
+                            "Option Chain Spot Price",
+                            "No live spot price tick available in spot cache. Streamer offline or idle."));
         }
 
-        List<StrikeDataDto> strikes = generateSampleOptionChainStrikes(currentSpot);
-        OptionChainAnalysisDto result = optionChainAnalysisService.analyzeOptionChain(symbol, currentSpot, strikes);
+        // Return real option chain snapshot from DB or throw exception if unpopulated
+        List<StrikeDataDto> strikes = Collections.emptyList();
+        if (strikes.isEmpty()) {
+            throw new MarketDataUnavailableException(
+                    symbol.toUpperCase(),
+                    "Option Chain Matrix",
+                    "No option chain strike data available for symbol/expiry.");
+        }
+
+        OptionChainAnalysisDto result = optionChainAnalysisService.analyzeOptionChain(symbol.toUpperCase(), currentSpot, strikes);
         return ResponseEntity.ok(result);
-    }
-
-    private List<Candle> generateSampleCandles(String symbol) {
-        List<Candle> sample = new ArrayList<>();
-        double price = 24000.0;
-        java.time.Instant now = java.time.Instant.now();
-        for (int i = 200; i >= 0; i--) {
-            price += (Math.random() - 0.48) * 150;
-            sample.add(Candle.builder()
-                    .symbol(symbol)
-                    .intervalName("1d")
-                    .timestamp(now.minusSeconds((long) i * 86400))
-                    .open(price - 20)
-                    .high(price + 50)
-                    .low(price - 40)
-                    .close(price)
-                    .volume(100000L + (long)(Math.random() * 50000))
-                    .build());
-        }
-        return sample;
-    }
-
-    private List<StrikeDataDto> generateSampleOptionChainStrikes(double spotPrice) {
-        List<StrikeDataDto> list = new ArrayList<>();
-        double baseStrike = Math.floor(spotPrice / 100.0) * 100.0;
-        for (int i = -10; i <= 10; i++) {
-            double strike = baseStrike + (i * 100);
-            long callOi = (long) (50000 + Math.max(0, 100000 - Math.abs(strike - spotPrice) * 100));
-            long putOi = (long) (50000 + Math.max(0, 100000 - Math.abs(spotPrice - strike) * 100));
-            list.add(StrikeDataDto.builder()
-                    .strikePrice(strike)
-                    .callOi(callOi)
-                    .putOi(putOi)
-                    .callLtp(Math.max(5.0, 300.0 - (strike - spotPrice)))
-                    .putLtp(Math.max(5.0, 300.0 + (strike - spotPrice)))
-                    .callIv(14.5 + Math.random() * 2)
-                    .putIv(15.0 + Math.random() * 2)
-                    .build());
-        }
-        return list;
     }
 }

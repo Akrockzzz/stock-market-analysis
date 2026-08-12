@@ -39,12 +39,16 @@ export default function Dashboard() {
       if (techRes.ok) {
         const techData = await techRes.json();
         setTechnicals(techData);
+      } else {
+        setTechnicals(null);
       }
 
       const candleRes = await fetch(`http://localhost:8080/api/market/candles/${sym}`);
       if (candleRes.ok) {
         const candleData = await candleRes.json();
         setCandles(candleData);
+      } else {
+        setCandles([]);
       }
 
       // 2. Fetch Option Chain
@@ -52,6 +56,8 @@ export default function Dashboard() {
       if (optRes.ok) {
         const optData = await optRes.json();
         setOptionChain(optData);
+      } else {
+        setOptionChain(null);
       }
 
       // 3. Fetch Fundamentals
@@ -59,6 +65,8 @@ export default function Dashboard() {
       if (fundRes.ok) {
         const fundData = await fundRes.json();
         setFundamentals(fundData);
+      } else {
+        setFundamentals(null);
       }
 
       // 4. Fetch Scorecard
@@ -66,6 +74,8 @@ export default function Dashboard() {
       if (scoreRes.ok) {
         const scoreData = await scoreRes.json();
         setScorecard(scoreData);
+      } else {
+        setScorecard(null);
       }
 
       // 5. Fetch Connection Status

@@ -5,6 +5,8 @@ import com.stock.analysis.enums.ConnectionState;
 import com.stock.analysis.model.Tick;
 import com.stock.analysis.service.SpotPriceCacheService;
 import com.stock.analysis.util.MarketHoursUtil;
+import com.upstox.marketdata.v3.MarketDataFeedV3;
+import com.google.protobuf.InvalidProtocolBufferException;
 import lombok.extern.slf4j.Slf4j;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
@@ -16,6 +18,7 @@ import java.net.URI;
 import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
@@ -67,17 +70,18 @@ public class UpstoxWebSocketStreamer {
                     log.info("Successfully connected to Upstox Market Data Feed V3 WebSocket");
                     ConnectionState state = marketHoursUtil.determineSystemConnectionState(true, true);
                     broadcastStatus(state, "Stream connected successfully");
+
+                    // Subscribe to active LRU tokens
+                    sendSubscriptions(subscriptionManager.getActiveTier1Tokens(), "sub");
                 }
 
                 @Override
                 public void onMessage(String message) {
-                    // JSON payload fallback
-                    log.debug("Received text message: {}", message);
+                    log.debug("Received text message from Upstox feed: {}", message);
                 }
 
                 @Override
                 public void onMessage(ByteBuffer bytes) {
-                    // Protobuf payload decoding logic
                     parseProtobufPayload(bytes);
                 }
 
@@ -103,10 +107,16 @@ public class UpstoxWebSocketStreamer {
         }
     }
 
-    public void processSimulatedTick(Tick tick) {
-        // Fallback or simulated tick handler for live testing / off-hours evaluation
-        spotPriceCacheService.updateTick(tick);
-        messagingTemplate.convertAndSend("/topic/ticks", tick);
+    public void sendSubscriptions(Set<String> keys, String action) {
+        if (!isConnected || webSocketClient == null || keys.isEmpty()) return;
+        try {
+            String jsonKeys = String.join("\",\"", keys);
+            String subJson = String.format("{\"guid\":\"sub_req\",\"method\":\"%s\",\"data\":{\"mode\":\"full\",\"instrumentKeys\":[\"%s\"]}}", action, jsonKeys);
+            webSocketClient.send(subJson);
+            log.info("Sent WebSocket subscription action '{}' for keys: {}", action, keys);
+        } catch (Exception e) {
+            log.error("Error sending WebSocket subscription frame", e);
+        }
     }
 
     public ConnectionStatusDto getCurrentStatus() {
@@ -126,12 +136,52 @@ public class UpstoxWebSocketStreamer {
     }
 
     private void parseProtobufPayload(ByteBuffer bytes) {
-        // High frequency Protobuf byte decoding fallback structure
         try {
-            // Unpack binary protobuf bytes into Tick entity
-            // Note: Protobuf MarketDataFeedV3 auto-generated java class handles exact binary unmarshalling
+            byte[] byteArray = new byte[bytes.remaining()];
+            bytes.get(byteArray);
+            MarketDataFeedV3.FeedResponse feedResponse = MarketDataFeedV3.FeedResponse.parseFrom(byteArray);
+
+            if (feedResponse != null && feedResponse.getFeedsCount() > 0) {
+                feedResponse.getFeedsMap().forEach((instrumentKey, feed) -> {
+                    Double ltp = null;
+                    Long volume = null;
+                    Long oi = null;
+
+                    if (feed.hasLtpc()) {
+                        ltp = feed.getLtpc().getLtp();
+                    } else if (feed.hasFullFeed()) {
+                        MarketDataFeedV3.FullFeed ff = feed.getFullFeed();
+                        if (ff.hasLtpc()) ltp = ff.getLtpc().getLtp();
+                        volume = ff.getVolume();
+                        oi = ff.getOi();
+                    }
+
+                    if (ltp != null && ltp > 0) {
+                        Tick tick = Tick.builder()
+                                .instrumentKey(instrumentKey)
+                                .symbol(extractSymbolFromKey(instrumentKey))
+                                .ltp(ltp)
+                                .volume(volume)
+                                .openInterest(oi)
+                                .timestamp(Instant.ofEpochMilli(feedResponse.getCurrentTs() > 0 ? feedResponse.getCurrentTs() : System.currentTimeMillis()))
+                                .build();
+
+                        subscriptionManager.updateAccess(instrumentKey);
+                        spotPriceCacheService.updateTick(tick);
+                        messagingTemplate.convertAndSend("/topic/ticks", tick);
+                    }
+                });
+            }
+        } catch (InvalidProtocolBufferException e) {
+            log.error("Error unmarshalling Protobuf payload from Upstox stream", e);
         } catch (Exception e) {
-            log.error("Error decoding Protobuf message payload", e);
+            log.error("Unexpected error processing binary stream payload", e);
         }
+    }
+
+    private String extractSymbolFromKey(String instrumentKey) {
+        if (instrumentKey == null) return "UNKNOWN";
+        int barIdx = instrumentKey.indexOf('|');
+        return barIdx >= 0 ? instrumentKey.substring(barIdx + 1) : instrumentKey;
     }
 }

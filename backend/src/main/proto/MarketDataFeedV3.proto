@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package com.upstox.marketdata.v3;
+
+option java_package = "com.upstox.marketdata.v3";
+option java_outer_classname = "MarketDataFeedV3";
+
+enum Type {
+  initial_feed = 0;
+  live_feed = 1;
+  market_info_feed = 2;
+}
+
+message LTPC {
+  double ltp = 1;
+  int64 ltt = 2;
+  int64 ltq = 3;
+  double close = 4;
+}
+
+message MarketOHLC {
+  double open = 1;
+  double high = 2;
+  double low = 3;
+  double close = 4;
+}
+
+message FullFeed {
+  LTPC ltpc = 1;
+  MarketOHLC ohlc = 2;
+  int64 volume = 3;
+  int64 oi = 4;
+  double bidPrice = 5;
+  double askPrice = 6;
+}
+
+message Feed {
+  oneof FeedUnion {
+    LTPC ltpc = 1;
+    FullFeed fullFeed = 2;
+  }
+}
+
+message FeedResponse {
+  Type type = 1;
+  map<string, Feed> feeds = 2;
+  int64 currentTs = 3;
+}
