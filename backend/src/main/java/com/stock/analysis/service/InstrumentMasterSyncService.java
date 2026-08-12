@@ -4,6 +4,9 @@ import com.stock.analysis.enums.Exchange;
 import com.stock.analysis.enums.InstrumentType;
 import com.stock.analysis.model.Instrument;
 import com.stock.analysis.repository.InstrumentRepository;
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -11,8 +14,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
+import java.io.InputStream;
 import java.net.URL;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -27,12 +29,12 @@ public class InstrumentMasterSyncService {
 
     private final InstrumentRepository instrumentRepository;
 
-    private static final String UPSTOX_INSTRUMENT_GZ_URL = "https://assets.upstox.com/market-quote/instruments/exchange/complete.csv.gz";
+    private static final String UPSTOX_INSTRUMENT_JSON_GZ_URL = "https://assets.upstox.com/market-quote/instruments/exchange/complete.json.gz";
 
     @EventListener(ApplicationReadyEvent.class)
     public void onStartup() {
         if (instrumentRepository.count() == 0) {
-            log.info("Instrument Master DB table is empty. Triggering full Upstox CSV download and sync...");
+            log.info("Instrument Master DB table is empty. Triggering full Upstox JSON dump sync...");
             syncInstrumentMaster();
         }
     }
@@ -44,72 +46,91 @@ public class InstrumentMasterSyncService {
     }
 
     public synchronized void syncInstrumentMaster() {
-        List<Instrument> instruments = new ArrayList<>();
-        log.info("Downloading Upstox Instrument Master CSV dump from: {}", UPSTOX_INSTRUMENT_GZ_URL);
+        List<Instrument> batch = new ArrayList<>();
+        log.info("Downloading official Upstox Instrument Master JSON dump from: {}", UPSTOX_INSTRUMENT_JSON_GZ_URL);
 
-        try (GZIPInputStream gzis = new GZIPInputStream(new URL(UPSTOX_INSTRUMENT_GZ_URL).openStream());
-             BufferedReader reader = new BufferedReader(new InputStreamReader(gzis))) {
+        try (InputStream stream = new URL(UPSTOX_INSTRUMENT_JSON_GZ_URL).openStream();
+             GZIPInputStream gzis = new GZIPInputStream(stream)) {
 
-            String headerLine = reader.readLine(); // Header: instrument_key,exchange_token,tradingsymbol,name,last_price,expiry,strike,tick_size,lot_size,instrument_type,option_type,exchange
-            if (headerLine == null) return;
+            JsonFactory factory = new JsonFactory();
+            try (JsonParser parser = factory.createParser(gzis)) {
 
-            String line;
-            int count = 0;
-            while ((line = reader.readLine()) != null) {
-                String[] tokens = line.split(",", -1);
-                if (tokens.length < 10) continue;
-
-                String instrumentKey = tokens[0].replaceAll("\"", "");
-                String exchangeStr = tokens[11 < tokens.length ? 11 : 1].replaceAll("\"", "");
-                String symbol = tokens[2].replaceAll("\"", "");
-                String name = tokens[3].replaceAll("\"", "");
-                String expiryStr = tokens[5].replaceAll("\"", "");
-                String strikeStr = tokens[6].replaceAll("\"", "");
-                String tickSizeStr = tokens[7].replaceAll("\"", "");
-                String lotSizeStr = tokens[8].replaceAll("\"", "");
-                String typeStr = tokens[9].replaceAll("\"", "");
-
-                if (!"NSE_EQ".equalsIgnoreCase(exchangeStr) && !"NSE_FO".equalsIgnoreCase(exchangeStr)) {
-                    continue; // Filter to NSE Equity and F&O
+                if (parser.nextToken() != JsonToken.START_ARRAY) {
+                    log.warn("Expected START_ARRAY token in Upstox Instrument JSON dump");
+                    seedFallbackInstruments();
+                    return;
                 }
 
-                InstrumentType type = InstrumentType.EQUITY;
-                if ("FUT".equalsIgnoreCase(typeStr) || "FUTIVX".equalsIgnoreCase(typeStr)) type = InstrumentType.FUTURES;
-                else if ("CE".equalsIgnoreCase(typeStr)) type = InstrumentType.CE;
-                else if ("PE".equalsIgnoreCase(typeStr)) type = InstrumentType.PE;
+                int count = 0;
+                while (parser.nextToken() == JsonToken.START_OBJECT) {
+                    String instrumentKey = null;
+                    String exchangeStr = null;
+                    String symbol = null;
+                    String name = null;
+                    String isin = null;
+                    String expiryStr = null;
+                    Double strikePrice = null;
+                    Double tickSize = 0.05;
+                    Integer lotSize = 1;
+                    String instrumentTypeStr = null;
 
-                Double strike = !strikeStr.isBlank() ? parseDouble(strikeStr) : null;
-                Double tickSize = !tickSizeStr.isBlank() ? parseDouble(tickSizeStr) : 0.05;
-                Integer lotSize = !lotSizeStr.isBlank() ? parseInt(lotSizeStr) : 1;
-                LocalDate expiry = !expiryStr.isBlank() ? parseExpiry(expiryStr) : null;
+                    while (parser.nextToken() != JsonToken.END_OBJECT) {
+                        String fieldName = parser.getCurrentName();
+                        parser.nextToken(); // Move to field value
 
-                Instrument instrument = Instrument.builder()
-                        .instrumentKey(instrumentKey)
-                        .exchange("NSE_EQ".equalsIgnoreCase(exchangeStr) ? Exchange.NSE_EQ : Exchange.NSE_FO)
-                        .symbol(symbol)
-                        .name(name)
-                        .instrumentType(type)
-                        .lotSize(lotSize)
-                        .strikePrice(strike)
-                        .expiry(expiry)
-                        .tickSize(tickSize)
-                        .build();
+                        if ("instrument_key".equals(fieldName)) instrumentKey = parser.getText();
+                        else if ("exchange".equals(fieldName)) exchangeStr = parser.getText();
+                        else if ("trading_symbol".equals(fieldName) || "symbol".equals(fieldName)) symbol = parser.getText();
+                        else if ("name".equals(fieldName)) name = parser.getText();
+                        else if ("isin".equals(fieldName)) isin = parser.getText();
+                        else if ("expiry".equals(fieldName)) expiryStr = parser.getText();
+                        else if ("strike_price".equals(fieldName) || "strike".equals(fieldName)) strikePrice = parser.getValueAsDouble();
+                        else if ("tick_size".equals(fieldName)) tickSize = parser.getValueAsDouble(0.05);
+                        else if ("lot_size".equals(fieldName)) lotSize = parser.getValueAsInt(1);
+                        else if ("instrument_type".equals(fieldName)) instrumentTypeStr = parser.getText();
+                    }
 
-                instruments.add(instrument);
-                count++;
+                    if (!"NSE_EQ".equalsIgnoreCase(exchangeStr) && !"NSE_FO".equalsIgnoreCase(exchangeStr)) {
+                        continue; // Filter to NSE Equity and F&O instruments
+                    }
 
-                if (instruments.size() >= 2000) {
-                    instrumentRepository.saveAll(instruments);
-                    instruments.clear();
+                    if (instrumentKey != null && symbol != null) {
+                        InstrumentType type = InstrumentType.EQUITY;
+                        if ("FUT".equalsIgnoreCase(instrumentTypeStr) || "FUTIVX".equalsIgnoreCase(instrumentTypeStr)) type = InstrumentType.FUTURES;
+                        else if ("CE".equalsIgnoreCase(instrumentTypeStr)) type = InstrumentType.CE;
+                        else if ("PE".equalsIgnoreCase(instrumentTypeStr)) type = InstrumentType.PE;
+
+                        LocalDate expiry = (expiryStr != null && !expiryStr.isBlank()) ? parseExpiry(expiryStr) : null;
+
+                        Instrument instrument = Instrument.builder()
+                                .instrumentKey(instrumentKey)
+                                .exchange("NSE_EQ".equalsIgnoreCase(exchangeStr) ? Exchange.NSE_EQ : Exchange.NSE_FO)
+                                .symbol(symbol)
+                                .name(name)
+                                .instrumentType(type)
+                                .lotSize(lotSize)
+                                .strikePrice(strikePrice)
+                                .expiry(expiry)
+                                .tickSize(tickSize)
+                                .build();
+
+                        batch.add(instrument);
+                        count++;
+
+                        if (batch.size() >= 2000) {
+                            instrumentRepository.saveAll(batch);
+                            batch.clear();
+                        }
+                    }
                 }
-            }
 
-            if (!instruments.isEmpty()) {
-                instrumentRepository.saveAll(instruments);
+                if (!batch.isEmpty()) {
+                    instrumentRepository.saveAll(batch);
+                }
+                log.info("Successfully downloaded and parsed {} NSE instruments from Upstox JSON dump.", count);
             }
-            log.info("Successfully downloaded and parsed {} NSE instruments into database.", count);
         } catch (Exception e) {
-            log.error("Failed to download or parse Upstox Instrument Master CSV dump. Falling back to seed instruments.", e);
+            log.error("Failed to download or parse Upstox Instrument Master JSON dump. Falling back to baseline instruments.", e);
             seedFallbackInstruments();
         }
     }
@@ -123,14 +144,6 @@ public class InstrumentMasterSyncService {
                 Instrument.builder().instrumentKey("NSE_INDEX|Nifty 50").symbol("NIFTY").name("NIFTY 50 Index").exchange(Exchange.NSE_EQ).instrumentType(InstrumentType.EQUITY).lotSize(50).tickSize(0.05).build()
         );
         instrumentRepository.saveAll(seeds);
-    }
-
-    private Double parseDouble(String val) {
-        try { return Double.parseDouble(val); } catch (Exception e) { return null; }
-    }
-
-    private Integer parseInt(String val) {
-        try { return Integer.parseInt(val); } catch (Exception e) { return 1; }
     }
 
     private LocalDate parseExpiry(String val) {

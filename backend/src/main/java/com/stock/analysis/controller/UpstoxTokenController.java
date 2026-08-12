@@ -25,8 +25,7 @@ public class UpstoxTokenController {
         }
 
         log.info("Received runtime Upstox OAuth token update. Reconnecting market stream...");
-        // Reconnect WebSocket streamer with new token
-        webSocketStreamer.connect();
+        webSocketStreamer.updateAccessToken(request.getAccessToken());
 
         return ResponseEntity.ok(Map.of(
                 "status", "TOKEN_UPDATED",

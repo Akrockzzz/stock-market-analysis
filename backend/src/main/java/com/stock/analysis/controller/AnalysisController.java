@@ -16,6 +16,7 @@ import com.stock.analysis.repository.OptionChainSnapshotRepository;
 import com.stock.analysis.service.HistoricalDataSyncService;
 import com.stock.analysis.service.OptionChainSyncService;
 import com.stock.analysis.service.SpotPriceCacheService;
+import com.stock.analysis.util.ExpiryUtil;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -83,7 +84,7 @@ public class AnalysisController {
                     .orElse(null);
         }
 
-        LocalDate expiryDate = expiry != null ? LocalDate.parse(expiry) : LocalDate.now();
+        LocalDate expiryDate = expiry != null ? LocalDate.parse(expiry) : ExpiryUtil.getNextValidThursdayExpiry();
 
         OptionChainSnapshot snapshot = optionChainSnapshotRepository
                 .findFirstByUnderlyingSymbolAndExpiryDateOrderByTimestampDesc(upperSymbol, expiryDate)
@@ -100,7 +101,7 @@ public class AnalysisController {
             throw new MarketDataUnavailableException(
                     upperSymbol,
                     "Option Chain Matrix",
-                    "No real option chain snapshot found in database or Upstox REST API.");
+                    "No real option chain snapshot found in database or Upstox REST API for expiry " + expiryDate + ".");
         }
 
         List<StrikeDataDto> strikes = Collections.emptyList();

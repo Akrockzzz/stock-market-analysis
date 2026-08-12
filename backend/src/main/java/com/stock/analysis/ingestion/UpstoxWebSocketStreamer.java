@@ -20,13 +20,14 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
 @Component
 public class UpstoxWebSocketStreamer {
 
     private final String wsFeedUrl;
-    private final String accessToken;
+    private final AtomicReference<String> accessToken;
     private final SpotPriceCacheService spotPriceCacheService;
     private final MarketHoursUtil marketHoursUtil;
     private final SimpMessagingTemplate messagingTemplate;
@@ -43,15 +44,34 @@ public class UpstoxWebSocketStreamer {
             SimpMessagingTemplate messagingTemplate,
             LruSubscriptionManager subscriptionManager) {
         this.wsFeedUrl = wsFeedUrl;
-        this.accessToken = accessToken;
+        this.accessToken = new AtomicReference<>(accessToken != null ? accessToken : "");
         this.spotPriceCacheService = spotPriceCacheService;
         this.marketHoursUtil = marketHoursUtil;
         this.messagingTemplate = messagingTemplate;
         this.subscriptionManager = subscriptionManager;
     }
 
+    public synchronized void updateAccessToken(String newToken) {
+        if (newToken == null || newToken.isBlank()) return;
+        log.info("Updating dynamic Upstox Access Token reference and reconnecting stream...");
+        this.accessToken.set(newToken);
+        if (webSocketClient != null) {
+            try {
+                webSocketClient.close();
+            } catch (Exception e) {
+                log.warn("Error closing previous WebSocket client during token update", e);
+            }
+        }
+        connect();
+    }
+
+    public String getAccessToken() {
+        return accessToken.get();
+    }
+
     public synchronized void connect() {
-        if (accessToken == null || accessToken.isBlank()) {
+        String token = accessToken.get();
+        if (token == null || token.isBlank()) {
             log.warn("Upstox Access Token is missing. Connection state: NOT_CONNECTED");
             broadcastStatus(ConnectionState.NOT_CONNECTED, "Upstox Access Token missing. Configure in settings.");
             return;
@@ -61,7 +81,7 @@ public class UpstoxWebSocketStreamer {
             URI uri = new URI(wsFeedUrl);
             Map<String, String> headers = ConcurrentHashMap.newKeySet().stream()
                     .collect(ConcurrentHashMap::new, (m, v) -> {}, (m1, m2) -> {});
-            headers.put("Authorization", "Bearer " + accessToken);
+            headers.put("Authorization", "Bearer " + token);
 
             webSocketClient = new WebSocketClient(uri, headers) {
                 @Override
@@ -120,7 +140,8 @@ public class UpstoxWebSocketStreamer {
     }
 
     public ConnectionStatusDto getCurrentStatus() {
-        boolean hasToken = accessToken != null && !accessToken.isBlank();
+        String token = accessToken.get();
+        boolean hasToken = token != null && !token.isBlank();
         ConnectionState state = marketHoursUtil.determineSystemConnectionState(hasToken, isConnected);
         return new ConnectionStatusDto(
                 "UPSTOX_V3_FEED",
