@@ -1,5 +1,6 @@
 package com.stock.analysis.service;
 
+import com.stock.analysis.ingestion.UpstoxWebSocketStreamer;
 import com.stock.analysis.model.Candle;
 import com.stock.analysis.repository.CandleRepository;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -23,17 +24,16 @@ import java.util.List;
 public class HistoricalDataSyncService {
 
     private final CandleRepository candleRepository;
+    private final UpstoxWebSocketStreamer webSocketStreamer;
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${upstox.api.base-url:https://api.upstox.com/v2}")
     private String baseUrl;
 
-    @Value("${upstox.api.access-token:}")
-    private String accessToken;
-
     public List<Candle> fetchAndStoreHistoricalCandles(String symbol, String instrumentKey, String interval, LocalDate fromDate, LocalDate toDate) {
         List<Candle> savedCandles = new ArrayList<>();
+        String accessToken = webSocketStreamer.getAccessToken();
 
         if (accessToken == null || accessToken.isBlank()) {
             log.warn("Cannot fetch Upstox historical candles for {}: Upstox Access Token is missing.", symbol);
@@ -41,7 +41,6 @@ public class HistoricalDataSyncService {
         }
 
         try {
-            // Upstox v2 format: /v2/historical-candle/{instrumentKey}/{interval}/{toDate}/{fromDate}
             String url = String.format("%s/historical-candle/%s/%s/%s/%s",
                     baseUrl, instrumentKey, interval,
                     toDate.format(DateTimeFormatter.ISO_LOCAL_DATE),

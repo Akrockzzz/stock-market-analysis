@@ -84,7 +84,7 @@ public class AnalysisController {
                     .orElse(null);
         }
 
-        LocalDate expiryDate = expiry != null ? LocalDate.parse(expiry) : ExpiryUtil.getNextValidThursdayExpiry();
+        LocalDate expiryDate = expiry != null ? LocalDate.parse(expiry) : ExpiryUtil.getNextValidExpiryDate(Exchange.NSE_EQ);
 
         OptionChainSnapshot snapshot = optionChainSnapshotRepository
                 .findFirstByUnderlyingSymbolAndExpiryDateOrderByTimestampDesc(upperSymbol, expiryDate)

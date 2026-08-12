@@ -1,5 +1,6 @@
 package com.stock.analysis.service;
 
+import com.stock.analysis.ingestion.UpstoxWebSocketStreamer;
 import com.stock.analysis.model.Fundamentals;
 import com.stock.analysis.repository.FundamentalsRepository;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -20,16 +21,16 @@ import java.util.List;
 public class FundamentalsSyncService {
 
     private final FundamentalsRepository fundamentalsRepository;
+    private final UpstoxWebSocketStreamer webSocketStreamer;
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${upstox.api.base-url:https://api.upstox.com/v2}")
     private String baseUrl;
 
-    @Value("${upstox.api.access-token:}")
-    private String accessToken;
-
     public Fundamentals fetchAndStoreFundamentals(String symbol, String isinOrInstrumentKey) {
+        String accessToken = webSocketStreamer.getAccessToken();
+
         if (accessToken == null || accessToken.isBlank()) {
             log.warn("Cannot fetch Upstox Fundamentals for {}: Access Token is missing.", symbol);
             return null;
@@ -47,25 +48,25 @@ public class FundamentalsSyncService {
             headers.setAccept(List.of(MediaType.APPLICATION_JSON));
             HttpEntity<Void> requestEntity = new HttpEntity<>(headers);
 
-            // 1. Fetch Key Ratios
+            // 1. Fetch Income Statement (Revenue, Net Profit, EBITDA & Net Margins)
+            String incomeUrl = String.format("%s/fundamentals/%s/income-statement", baseUrl, isin);
+            JsonNode incomeNode = fetchJson(incomeUrl, requestEntity);
+
+            // 2. Fetch Key Ratios (ROE, ROCE, P/E, P/B, Debt to Equity)
             String ratiosUrl = String.format("%s/fundamentals/%s/key-ratios", baseUrl, isin);
             JsonNode ratiosNode = fetchJson(ratiosUrl, requestEntity);
 
-            // 2. Fetch Share Holdings
+            // 3. Fetch Share Holdings (Promoter %, Pledge %, FII %, DII %)
             String holdingsUrl = String.format("%s/fundamentals/%s/share-holdings", baseUrl, isin);
             JsonNode holdingsNode = fetchJson(holdingsUrl, requestEntity);
-
-            // 3. Fetch Profile / Financial Statements
-            String profileUrl = String.format("%s/fundamentals/%s/profile", baseUrl, isin);
-            JsonNode profileNode = fetchJson(profileUrl, requestEntity);
 
             Fundamentals fundamentals = Fundamentals.builder()
                     .symbol(symbol.toUpperCase())
                     .period("TTM")
-                    .revenueInCr(profileNode.path("revenue").asDouble(0.0))
-                    .netProfitInCr(profileNode.path("net_profit").asDouble(0.0))
-                    .ebitdaMarginPct(profileNode.path("ebitda_margin").asDouble(0.0))
-                    .netMarginPct(profileNode.path("net_margin").asDouble(0.0))
+                    .revenueInCr(incomeNode.path("total_revenue").asDouble(incomeNode.path("revenue").asDouble(0.0)))
+                    .netProfitInCr(incomeNode.path("net_profit").asDouble(incomeNode.path("pat").asDouble(0.0)))
+                    .ebitdaMarginPct(incomeNode.path("ebitda_margin").asDouble(incomeNode.path("operating_margin").asDouble(0.0)))
+                    .netMarginPct(incomeNode.path("net_margin").asDouble(incomeNode.path("pat_margin").asDouble(0.0)))
                     .roePct(ratiosNode.path("roe").asDouble(ratiosNode.path("return_on_equity").asDouble(0.0)))
                     .rocePct(ratiosNode.path("roce").asDouble(ratiosNode.path("return_on_capital_employed").asDouble(0.0)))
                     .debtToEquity(ratiosNode.path("debt_to_equity").asDouble(0.0))
@@ -93,7 +94,7 @@ public class FundamentalsSyncService {
                 return objectMapper.readTree(response.getBody()).path("data");
             }
         } catch (Exception e) {
-            log.debug("Sub-endpoint call failed for URL: {}", url);
+            log.debug("Fundamentals sub-endpoint call failed for URL: {}", url);
         }
         return objectMapper.createObjectNode();
     }

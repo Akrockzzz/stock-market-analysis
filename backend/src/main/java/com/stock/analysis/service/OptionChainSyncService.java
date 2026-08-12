@@ -2,6 +2,7 @@ package com.stock.analysis.service;
 
 import com.stock.analysis.dto.StrikeDataDto;
 import com.stock.analysis.engine.OptionChainAnalysisService;
+import com.stock.analysis.ingestion.UpstoxWebSocketStreamer;
 import com.stock.analysis.model.OptionChainSnapshot;
 import com.stock.analysis.repository.OptionChainSnapshotRepository;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -25,16 +26,16 @@ public class OptionChainSyncService {
 
     private final OptionChainSnapshotRepository optionChainSnapshotRepository;
     private final OptionChainAnalysisService optionChainAnalysisService;
+    private final UpstoxWebSocketStreamer webSocketStreamer;
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${upstox.api.base-url:https://api.upstox.com/v2}")
     private String baseUrl;
 
-    @Value("${upstox.api.access-token:}")
-    private String accessToken;
-
     public OptionChainSnapshot fetchAndStoreOptionChain(String underlyingSymbol, String instrumentKey, LocalDate expiryDate, Double spotPrice) {
+        String accessToken = webSocketStreamer.getAccessToken();
+
         if (accessToken == null || accessToken.isBlank()) {
             log.warn("Cannot fetch Upstox Option Chain for {}: Access Token is missing.", underlyingSymbol);
             return null;
