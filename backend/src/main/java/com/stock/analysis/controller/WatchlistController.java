@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Slf4j
 @RestController
@@ -37,11 +38,39 @@ public class WatchlistController {
         Set<String> evicted = subscriptionManager.subscribeTier1(List.of(key));
 
         webSocketStreamer.sendSubscriptions(Set.of(key), "sub");
-        log.info("Subscribed symbol {} (Key: {}) to live stream", upperSymbol, key);
+        log.info("Subscribed Tier 1 symbol {} (Key: {}) to live stream", upperSymbol, key);
 
         return ResponseEntity.ok(Map.of(
                 "symbol", upperSymbol,
                 "instrumentKey", key,
+                "tier", "TIER_1_WATCHLIST",
+                "status", "SUBSCRIBED",
+                "evictedTokens", evicted
+        ));
+    }
+
+    @PostMapping("/{symbol}/subscribe-option-chain")
+    public ResponseEntity<Map<String, Object>> subscribeOptionChain(@PathVariable String symbol) {
+        String upperSymbol = symbol.toUpperCase();
+        List<Instrument> options = instrumentRepository.findBySymbolContainingIgnoreCase(upperSymbol).stream()
+                .filter(i -> i.getExchange() == Exchange.NSE_FO)
+                .limit(40)
+                .collect(Collectors.toList());
+
+        if (options.isEmpty()) {
+            throw new MarketDataUnavailableException(upperSymbol, "Option Stream", "No F&O option contract instruments found in database for symbol.");
+        }
+
+        List<String> keys = options.stream().map(Instrument::getInstrumentKey).collect(Collectors.toList());
+        Set<String> evicted = subscriptionManager.subscribeTier2(keys);
+
+        webSocketStreamer.sendSubscriptions(new java.util.HashSet<>(keys), "sub");
+        log.info("Subscribed Tier 2 Option Chain for symbol {} ({} strike tokens)", upperSymbol, keys.size());
+
+        return ResponseEntity.ok(Map.of(
+                "symbol", upperSymbol,
+                "tier", "TIER_2_OPTION_CHAIN",
+                "subscribedStrikesCount", keys.size(),
                 "status", "SUBSCRIBED",
                 "evictedTokens", evicted
         ));

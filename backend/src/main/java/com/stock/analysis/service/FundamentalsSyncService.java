@@ -63,20 +63,20 @@ public class FundamentalsSyncService {
             Fundamentals fundamentals = Fundamentals.builder()
                     .symbol(symbol.toUpperCase())
                     .period("TTM")
-                    .revenueInCr(incomeNode.path("total_revenue").asDouble(incomeNode.path("revenue").asDouble(0.0)))
-                    .netProfitInCr(incomeNode.path("net_profit").asDouble(incomeNode.path("pat").asDouble(0.0)))
-                    .ebitdaMarginPct(incomeNode.path("ebitda_margin").asDouble(incomeNode.path("operating_margin").asDouble(0.0)))
-                    .netMarginPct(incomeNode.path("net_margin").asDouble(incomeNode.path("pat_margin").asDouble(0.0)))
-                    .roePct(ratiosNode.path("roe").asDouble(ratiosNode.path("return_on_equity").asDouble(0.0)))
-                    .rocePct(ratiosNode.path("roce").asDouble(ratiosNode.path("return_on_capital_employed").asDouble(0.0)))
-                    .debtToEquity(ratiosNode.path("debt_to_equity").asDouble(0.0))
-                    .peRatio(ratiosNode.path("pe_ratio").asDouble(0.0))
-                    .pbRatio(ratiosNode.path("pb_ratio").asDouble(0.0))
-                    .evEbitda(ratiosNode.path("ev_ebitda").asDouble(0.0))
-                    .promoterHoldingPct(holdingsNode.path("promoter_holding").asDouble(0.0))
-                    .promoterPledgePct(holdingsNode.path("promoter_pledge").asDouble(0.0))
-                    .fiiHoldingPct(holdingsNode.path("fii_holding").asDouble(0.0))
-                    .diiHoldingPct(holdingsNode.path("dii_holding").asDouble(0.0))
+                    .revenueInCr(extractFieldDouble(incomeNode, "total_revenue", "revenue", "sales", "total_sales"))
+                    .netProfitInCr(extractFieldDouble(incomeNode, "net_profit", "pat", "profit_after_tax"))
+                    .ebitdaMarginPct(extractFieldDouble(incomeNode, "ebitda_margin", "operating_margin", "opm"))
+                    .netMarginPct(extractFieldDouble(incomeNode, "net_margin", "pat_margin", "npm"))
+                    .roePct(extractFieldDouble(ratiosNode, "roe", "return_on_equity", "roe_pct"))
+                    .rocePct(extractFieldDouble(ratiosNode, "roce", "return_on_capital_employed", "roce_pct"))
+                    .debtToEquity(extractFieldDouble(ratiosNode, "debt_to_equity", "d_e", "de_ratio"))
+                    .peRatio(extractFieldDouble(ratiosNode, "pe_ratio", "pe", "price_to_earnings"))
+                    .pbRatio(extractFieldDouble(ratiosNode, "pb_ratio", "pb", "price_to_book"))
+                    .evEbitda(extractFieldDouble(ratiosNode, "ev_ebitda", "ev_to_ebitda"))
+                    .promoterHoldingPct(extractFieldDouble(holdingsNode, "promoter_holding", "promoter", "promoters"))
+                    .promoterPledgePct(extractFieldDouble(holdingsNode, "promoter_pledge", "pledged_shares", "pledge_pct"))
+                    .fiiHoldingPct(extractFieldDouble(holdingsNode, "fii_holding", "fii", "fiis"))
+                    .diiHoldingPct(extractFieldDouble(holdingsNode, "dii_holding", "dii", "diis"))
                     .lastUpdated(Instant.now())
                     .build();
 
@@ -85,6 +85,16 @@ public class FundamentalsSyncService {
             log.error("Failed to fetch Upstox Fundamentals by ISIN for " + symbol, e);
         }
         return null;
+    }
+
+    private double extractFieldDouble(JsonNode root, String... keys) {
+        if (root == null || root.isMissingNode()) return 0.0;
+        for (String key : keys) {
+            if (root.has(key) && !root.path(key).isNull()) {
+                return root.path(key).asDouble(0.0);
+            }
+        }
+        return 0.0;
     }
 
     private JsonNode fetchJson(String url, HttpEntity<Void> requestEntity) {
