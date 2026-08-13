@@ -73,13 +73,15 @@ public class InstrumentMasterSyncService {
                     Double tickSize = 0.05;
                     Integer lotSize = 1;
                     String instrumentTypeStr = null;
+                    String underlyingSymbol = null;
 
                     while (parser.nextToken() != JsonToken.END_OBJECT) {
                         String fieldName = parser.getCurrentName();
                         parser.nextToken(); // Move to field value
 
                         if ("instrument_key".equals(fieldName)) instrumentKey = parser.getText();
-                        else if ("exchange".equals(fieldName)) exchangeStr = parser.getText();
+                        else if ("segment".equals(fieldName)) exchangeStr = parser.getText();
+                        else if ("exchange".equals(fieldName) && exchangeStr == null) exchangeStr = parser.getText();
                         else if ("trading_symbol".equals(fieldName) || "symbol".equals(fieldName)) symbol = parser.getText();
                         else if ("name".equals(fieldName)) name = parser.getText();
                         else if ("isin".equals(fieldName)) isin = parser.getText();
@@ -88,6 +90,7 @@ public class InstrumentMasterSyncService {
                         else if ("tick_size".equals(fieldName)) tickSize = parser.getValueAsDouble(0.05);
                         else if ("lot_size".equals(fieldName)) lotSize = parser.getValueAsInt(1);
                         else if ("instrument_type".equals(fieldName)) instrumentTypeStr = parser.getText();
+                        else if ("underlying_symbol".equals(fieldName) || "underlying_key".equals(fieldName)) underlyingSymbol = parser.getText();
                     }
 
                     if (!"NSE_EQ".equalsIgnoreCase(exchangeStr) && !"NSE_FO".equalsIgnoreCase(exchangeStr)) {
@@ -112,6 +115,7 @@ public class InstrumentMasterSyncService {
                                 .strikePrice(strikePrice)
                                 .expiry(expiry)
                                 .tickSize(tickSize)
+                                .underlyingSymbol(underlyingSymbol != null ? underlyingSymbol : symbol)
                                 .build();
 
                         batch.add(instrument);
