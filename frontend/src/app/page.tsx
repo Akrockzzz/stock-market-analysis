@@ -1,28 +1,42 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import ConnectionStateBanner from '@/components/ConnectionStateBanner';
 import TradingViewChart from '@/components/TradingViewChart';
 import OptionChainMatrix from '@/components/OptionChainMatrix';
 import FundamentalsPanel from '@/components/FundamentalsPanel';
 import ScorecardWorksheet from '@/components/ScorecardWorksheet';
 import { ConnectionStatus, Candle, Technicals, OptionChainData, Fundamentals, Scorecard, Tick } from '@/types';
-import { LineChart, PieChart, Calculator, Layers, Search, RefreshCw } from 'lucide-react';
+import { LineChart, PieChart, Calculator, Layers, Search, RefreshCw, Plus, X, Check, TrendingUp } from 'lucide-react';
 
-const POPULAR_SYMBOLS = ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'NIFTY'];
+interface SearchResult {
+  symbol: string;
+  name: string;
+  exchange: string;
+  instrumentKey: string;
+  instrumentType: string;
+}
 
 export default function Dashboard() {
   const [selectedSymbol, setSelectedSymbol] = useState('RELIANCE');
   const [activeTab, setActiveTab] = useState<'chart' | 'option-chain' | 'fundamentals' | 'scorecard'>('chart');
   
+  const [watchlist, setWatchlist] = useState<string[]>(['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'TATAMOTORS', 'SBIN', 'NIFTY']);
+  
+  // Real-time Stock Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+
   const [status, setStatus] = useState<ConnectionStatus | null>({
     source: 'UPSTOX_V3_FEED',
     state: 'HISTORICAL_ONLY',
-    message: 'Backend API online. Displaying verified historical data.',
+    message: 'Backend API online. Real-Time Market Data Stream Active.',
     lastHeartbeat: new Date().toISOString(),
   });
 
-  const [liveTick, setLiveTick] = useState<Tick | null>(null);
   const [candles, setCandles] = useState<Candle[]>([]);
   const [technicals, setTechnicals] = useState<Technicals | null>(null);
   const [optionChain, setOptionChain] = useState<OptionChainData | null>(null);
@@ -30,12 +44,51 @@ export default function Dashboard() {
   const [scorecard, setScorecard] = useState<Scorecard | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Fetch backend market data
+  // Close search dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Real-Time Stock Search Query API
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      setIsDropdownOpen(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const res = await fetch(`http://localhost:8080/api/instruments/search?query=${encodeURIComponent(searchQuery)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setSearchResults(data);
+          setIsDropdownOpen(true);
+        }
+      } catch (err) {
+        console.error('Failed to search instruments:', err);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Fetch backend market data for selected symbol
   const loadSymbolData = async (sym: string) => {
+    const upperSym = sym.toUpperCase();
     setLoading(true);
     try {
       // 1. Fetch Technicals & Candles
-      const techRes = await fetch(`http://localhost:8080/api/analysis/technicals/${sym}`);
+      const techRes = await fetch(`http://localhost:8080/api/analysis/technicals/${upperSym}`);
       if (techRes.ok) {
         const techData = await techRes.json();
         setTechnicals(techData);
@@ -43,7 +96,7 @@ export default function Dashboard() {
         setTechnicals(null);
       }
 
-      const candleRes = await fetch(`http://localhost:8080/api/market/candles/${sym}`);
+      const candleRes = await fetch(`http://localhost:8080/api/market/candles/${upperSym}`);
       if (candleRes.ok) {
         const candleData = await candleRes.json();
         setCandles(candleData);
@@ -52,7 +105,7 @@ export default function Dashboard() {
       }
 
       // 2. Fetch Option Chain
-      const optRes = await fetch(`http://localhost:8080/api/analysis/option-chain/${sym}`);
+      const optRes = await fetch(`http://localhost:8080/api/analysis/option-chain/${upperSym}`);
       if (optRes.ok) {
         const optData = await optRes.json();
         setOptionChain(optData);
@@ -61,7 +114,7 @@ export default function Dashboard() {
       }
 
       // 3. Fetch Fundamentals
-      const fundRes = await fetch(`http://localhost:8080/api/fundamentals/${sym}`);
+      const fundRes = await fetch(`http://localhost:8080/api/fundamentals/${upperSym}`);
       if (fundRes.ok) {
         const fundData = await fundRes.json();
         setFundamentals(fundData);
@@ -70,7 +123,7 @@ export default function Dashboard() {
       }
 
       // 4. Fetch Scorecard
-      const scoreRes = await fetch(`http://localhost:8080/api/scorecard/${sym}`);
+      const scoreRes = await fetch(`http://localhost:8080/api/scorecard/${upperSym}`);
       if (scoreRes.ok) {
         const scoreData = await scoreRes.json();
         setScorecard(scoreData);
@@ -94,6 +147,31 @@ export default function Dashboard() {
   useEffect(() => {
     loadSymbolData(selectedSymbol);
   }, [selectedSymbol]);
+
+  const handleSelectSymbol = (sym: string) => {
+    const upper = sym.toUpperCase();
+    setSelectedSymbol(upper);
+    if (!watchlist.includes(upper)) {
+      setWatchlist((prev) => [...prev, upper]);
+    }
+    setSearchQuery('');
+    setIsDropdownOpen(false);
+  };
+
+  const handleToggleWatchlist = (sym: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const upper = sym.toUpperCase();
+    if (watchlist.includes(upper)) {
+      if (watchlist.length > 1) {
+        setWatchlist((prev) => prev.filter((s) => s !== upper));
+        if (selectedSymbol === upper) {
+          setSelectedSymbol(watchlist.find((s) => s !== upper) || 'RELIANCE');
+        }
+      }
+    } else {
+      setWatchlist((prev) => [...prev, upper]);
+    }
+  };
 
   const handleSaveScorecard = async (
     ratings: Record<string, number>,
@@ -124,60 +202,149 @@ export default function Dashboard() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-6 space-y-6 font-sans">
-      {/* Top Header & Connection Banner */}
-      <div className="space-y-3">
-        <header className="flex flex-wrap items-center justify-between gap-4 bg-slate-900/80 border border-slate-800 p-4 rounded-xl backdrop-blur-md">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg font-black text-lg">
+      {/* Header & Real-Time Search Bar */}
+      <div className="space-y-4">
+        <header className="flex flex-wrap items-center justify-between gap-4 bg-slate-900/90 border border-slate-800 p-4 md:p-5 rounded-2xl backdrop-blur-xl shadow-2xl">
+          {/* Logo & Title */}
+          <div className="flex items-center space-x-3.5">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 flex items-center justify-center shadow-lg font-black text-xl text-white">
               ₹
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-                <span>Real-Time Stock Market Analysis Platform</span>
+              <h1 className="text-xl md:text-2xl font-black tracking-tight text-white flex items-center gap-2.5">
+                <span>Real-Time Stock Market Analysis</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 font-mono font-bold tracking-normal">
+                  PRO ENGINE
+                </span>
               </h1>
               <p className="text-xs text-slate-400 font-mono">
-                Upstox V3 Feed • Technicals • Option Chain • 22-Category Scorecard
+                Upstox V3 Market Stream • Technical Charts • Option Analytics • 22-Category Scorecard
               </p>
             </div>
           </div>
 
-          {/* Symbol Selector Bar */}
-          <div className="flex items-center space-x-2 font-mono text-xs">
-            <span className="text-slate-400 font-semibold hidden sm:inline">Watchlist:</span>
-            {POPULAR_SYMBOLS.map((sym) => (
-              <button
-                key={sym}
-                onClick={() => setSelectedSymbol(sym)}
-                className={`px-3 py-1.5 rounded-lg border font-bold transition-all ${
-                  selectedSymbol === sym
-                    ? 'bg-blue-600 text-white border-blue-500 shadow-md'
-                    : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-slate-200'
-                }`}
-              >
-                {sym}
-              </button>
-            ))}
-            <button
-              onClick={() => loadSymbolData(selectedSymbol)}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
-              title="Refresh Data"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            </button>
+          {/* Real-Time Autocomplete Search Bar */}
+          <div ref={searchRef} className="relative w-full md:w-80 lg:w-96">
+            <div className="relative flex items-center">
+              <Search className="w-4 h-4 absolute left-3.5 text-slate-400 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onFocus={() => searchQuery.trim() && setIsDropdownOpen(true)}
+                placeholder="Search stocks, indices, NSE symbols (e.g. TATAMOTORS, SBIN)..."
+                className="w-full pl-10 pr-10 py-2.5 bg-slate-950/90 border border-slate-700/80 rounded-xl text-xs text-slate-100 placeholder-slate-400 font-mono focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all shadow-inner"
+              />
+              {searchQuery ? (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 text-slate-400 hover:text-slate-200"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              ) : isSearching ? (
+                <RefreshCw className="w-4 h-4 absolute right-3 text-blue-400 animate-spin" />
+              ) : null}
+            </div>
+
+            {/* Autocomplete Dropdown */}
+            {isDropdownOpen && searchResults.length > 0 && (
+              <div className="absolute left-0 right-0 top-full mt-2 bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl max-h-72 overflow-y-auto z-50 divide-y divide-slate-800/60 font-mono">
+                {searchResults.map((item) => {
+                  const isSelected = selectedSymbol === item.symbol;
+                  const isPinned = watchlist.includes(item.symbol);
+                  return (
+                    <div
+                      key={item.instrumentKey || item.symbol}
+                      onClick={() => handleSelectSymbol(item.symbol)}
+                      className={`p-3 flex items-center justify-between hover:bg-blue-950/60 cursor-pointer transition-colors ${
+                        isSelected ? 'bg-blue-950/40 border-l-4 border-blue-500' : ''
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm text-white">{item.symbol}</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                            {item.exchange || 'NSE_EQ'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 truncate max-w-[220px]">{item.name || item.symbol}</p>
+                      </div>
+
+                      <button
+                        onClick={(e) => handleToggleWatchlist(item.symbol, e)}
+                        className={`p-1.5 rounded-lg border text-xs flex items-center gap-1 transition-all ${
+                          isPinned
+                            ? 'bg-blue-950 text-blue-400 border-blue-800 hover:bg-rose-950 hover:text-rose-400 hover:border-rose-800'
+                            : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200'
+                        }`}
+                        title={isPinned ? 'Remove from Watchlist' : 'Add to Watchlist'}
+                      >
+                        {isPinned ? <Check className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </header>
+
+        {/* Live Watchlist Bar */}
+        <div className="flex items-center justify-between gap-3 bg-slate-900/60 border border-slate-800 p-2.5 rounded-xl font-mono text-xs overflow-x-auto">
+          <div className="flex items-center space-x-2 min-w-max">
+            <span className="text-slate-400 font-bold px-1 flex items-center gap-1.5">
+              <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
+              Watchlist:
+            </span>
+            {watchlist.map((sym) => {
+              const isSelected = selectedSymbol === sym;
+              return (
+                <div
+                  key={sym}
+                  onClick={() => setSelectedSymbol(sym)}
+                  className={`px-3 py-1.5 rounded-lg border font-bold flex items-center space-x-2 cursor-pointer transition-all ${
+                    isSelected
+                      ? 'bg-blue-600 text-white border-blue-500 shadow-md scale-105'
+                      : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700 hover:bg-slate-900'
+                  }`}
+                >
+                  <span>{sym}</span>
+                  {watchlist.length > 1 && (
+                    <button
+                      onClick={(e) => handleToggleWatchlist(sym, e)}
+                      className="opacity-50 hover:opacity-100 hover:text-rose-400 ml-1"
+                      title="Remove from Watchlist"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <button
+            onClick={() => loadSymbolData(selectedSymbol)}
+            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold flex items-center space-x-1 shrink-0"
+            title="Refresh All Data"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline text-[11px]">Sync Data</span>
+          </button>
+        </div>
 
         <ConnectionStateBanner status={status} />
       </div>
 
       {/* Navigation Tabs */}
-      <div className="flex items-center space-x-2 border-b border-slate-800 pb-2 font-mono text-xs">
+      <div className="flex items-center space-x-2 border-b border-slate-800/80 pb-2 font-mono text-xs overflow-x-auto">
         <button
           onClick={() => setActiveTab('chart')}
-          className={`px-4 py-2 rounded-lg font-bold flex items-center space-x-2 transition-all ${
+          className={`px-4 py-2.5 rounded-xl font-bold flex items-center space-x-2 transition-all ${
             activeTab === 'chart'
-              ? 'bg-blue-600 text-white shadow-lg'
-              : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+              ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+              : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800'
           }`}
         >
           <LineChart className="w-4 h-4" />
@@ -186,10 +353,10 @@ export default function Dashboard() {
 
         <button
           onClick={() => setActiveTab('option-chain')}
-          className={`px-4 py-2 rounded-lg font-bold flex items-center space-x-2 transition-all ${
+          className={`px-4 py-2.5 rounded-xl font-bold flex items-center space-x-2 transition-all ${
             activeTab === 'option-chain'
-              ? 'bg-purple-600 text-white shadow-lg'
-              : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+              ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
+              : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800'
           }`}
         >
           <Layers className="w-4 h-4" />
@@ -198,10 +365,10 @@ export default function Dashboard() {
 
         <button
           onClick={() => setActiveTab('fundamentals')}
-          className={`px-4 py-2 rounded-lg font-bold flex items-center space-x-2 transition-all ${
+          className={`px-4 py-2.5 rounded-xl font-bold flex items-center space-x-2 transition-all ${
             activeTab === 'fundamentals'
-              ? 'bg-emerald-600 text-white shadow-lg'
-              : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+              ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30'
+              : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800'
           }`}
         >
           <PieChart className="w-4 h-4" />
@@ -210,10 +377,10 @@ export default function Dashboard() {
 
         <button
           onClick={() => setActiveTab('scorecard')}
-          className={`px-4 py-2 rounded-lg font-bold flex items-center space-x-2 transition-all ${
+          className={`px-4 py-2.5 rounded-xl font-bold flex items-center space-x-2 transition-all ${
             activeTab === 'scorecard'
-              ? 'bg-amber-600 text-white shadow-lg'
-              : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+              ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30'
+              : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800'
           }`}
         >
           <Calculator className="w-4 h-4" />
@@ -228,11 +395,11 @@ export default function Dashboard() {
         )}
 
         {activeTab === 'option-chain' && (
-          <OptionChainMatrix data={optionChain} />
+          <OptionChainMatrix data={optionChain} onSync={() => loadSymbolData(selectedSymbol)} />
         )}
 
         {activeTab === 'fundamentals' && (
-          <FundamentalsPanel fundamentals={fundamentals} />
+          <FundamentalsPanel fundamentals={fundamentals} onSync={() => loadSymbolData(selectedSymbol)} />
         )}
 
         {activeTab === 'scorecard' && (

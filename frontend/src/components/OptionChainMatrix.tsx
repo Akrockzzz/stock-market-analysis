@@ -8,11 +8,27 @@ interface Props {
   data: OptionChainData | null;
 }
 
-export default function OptionChainMatrix({ data }: Props) {
+export default function OptionChainMatrix({ data, onSync }: { data: OptionChainData | null; onSync?: () => void }) {
   if (!data) {
     return (
-      <div className="w-full bg-slate-900 border border-slate-800 rounded-xl p-8 text-center font-mono text-slate-400">
-        No Option Chain data loaded.
+      <div className="w-full bg-slate-900/90 border border-slate-800 rounded-xl p-10 text-center font-mono shadow-2xl backdrop-blur-md">
+        <div className="max-w-md mx-auto space-y-4">
+          <div className="w-12 h-12 rounded-full bg-purple-950/80 border border-purple-800 text-purple-400 flex items-center justify-center mx-auto text-xl">
+            ⚡
+          </div>
+          <h3 className="text-lg font-bold text-slate-100">Option Chain Snapshot Pending</h3>
+          <p className="text-xs text-slate-400">
+            No active option chain matrix snapshot found in database for this symbol expiry. Click below to trigger real-time Upstox API option analytics sync.
+          </p>
+          {onSync && (
+            <button
+              onClick={onSync}
+              className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg transition-all"
+            >
+              Sync Upstox Option Chain Now
+            </button>
+          )}
+        </div>
       </div>
     );
   }

@@ -8,11 +8,27 @@ interface Props {
   fundamentals: Fundamentals | null;
 }
 
-export default function FundamentalsPanel({ fundamentals }: Props) {
+export default function FundamentalsPanel({ fundamentals, onSync }: { fundamentals: Fundamentals | null; onSync?: () => void }) {
   if (!fundamentals) {
     return (
-      <div className="w-full bg-slate-900 border border-slate-800 rounded-xl p-8 text-center font-mono text-slate-400">
-        No Fundamentals data loaded for this symbol.
+      <div className="w-full bg-slate-900/90 border border-slate-800 rounded-xl p-10 text-center font-mono shadow-2xl backdrop-blur-md">
+        <div className="max-w-md mx-auto space-y-4">
+          <div className="w-12 h-12 rounded-full bg-emerald-950/80 border border-emerald-800 text-emerald-400 flex items-center justify-center mx-auto text-xl">
+            📊
+          </div>
+          <h3 className="text-lg font-bold text-slate-100">Financial Profile Pending</h3>
+          <p className="text-xs text-slate-400">
+            No fundamentals data stored for this symbol. Click below to pull verified financial statements, shareholding pattern, and ratios from Upstox API.
+          </p>
+          {onSync && (
+            <button
+              onClick={onSync}
+              className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg transition-all"
+            >
+              Fetch Fundamentals & Financial Ratios
+            </button>
+          )}
+        </div>
       </div>
     );
   }

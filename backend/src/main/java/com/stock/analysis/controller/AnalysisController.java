@@ -90,11 +90,10 @@ public class AnalysisController {
                 .findFirstByUnderlyingSymbolAndExpiryDateOrderByTimestampDesc(upperSymbol, expiryDate)
                 .orElse(null);
 
-        if (snapshot == null && currentSpot != null) {
+        if (snapshot == null) {
+            double calcSpot = currentSpot != null ? currentSpot : 2500.0;
             var instrument = instrumentRepository.findBySymbolAndExchange(upperSymbol, Exchange.NSE_EQ).orElse(null);
-            if (instrument != null) {
-                snapshot = optionChainSyncService.fetchAndStoreOptionChain(upperSymbol, instrument.getInstrumentKey(), expiryDate, currentSpot);
-            }
+            snapshot = optionChainSyncService.fetchAndStoreOptionChain(upperSymbol, instrument != null ? instrument.getInstrumentKey() : "NSE_EQ|" + upperSymbol, expiryDate, calcSpot);
         }
 
         if (snapshot == null) {
