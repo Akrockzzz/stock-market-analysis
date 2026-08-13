@@ -9,7 +9,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -64,5 +63,14 @@ public class InstrumentController {
     @GetMapping("/popular")
     public ResponseEntity<List<Instrument>> getPopularInstruments() {
         return ResponseEntity.ok(POPULAR_INDIAN_STOCKS);
+    }
+
+    @GetMapping("/count")
+    public ResponseEntity<Map<String, Object>> getInstrumentCount() {
+        long count = instrumentRepository.count();
+        return ResponseEntity.ok(Map.of(
+                "count", count,
+                "status", count > 0 ? "POPULATED" : "EMPTY"
+        ));
     }
 }
