@@ -6,7 +6,7 @@ services:
     container_name: stock-analysis-db
     environment:
       MYSQL_DATABASE: stockdb
-      MYSQL_ROOT_PASSWORD: 091221ak
+      MYSQL_ROOT_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:?Set SPRING_DATASOURCE_PASSWORD in your environment or .env file}
     ports:
       - "3306:3306"
     volumes:
@@ -27,7 +27,7 @@ services:
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/stockdb?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
       SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: 091221ak
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:?Set SPRING_DATASOURCE_PASSWORD in your environment or .env file}
       UPSTOX_API_KEY: ${UPSTOX_API_KEY:-demo_api_key}
       UPSTOX_API_SECRET: ${UPSTOX_API_SECRET:-demo_api_secret}
       UPSTOX_ACCESS_TOKEN: ${UPSTOX_ACCESS_TOKEN:-}
