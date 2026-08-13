@@ -1,100 +1,229 @@
-# Real-Time Stock Market Analysis Platform
+# 📈 Real-Time Stock Market Analysis Platform
 
-A high-performance, production-grade real-time stock market analysis platform built with **Java 17/21 & Spring Boot 3.3** on the backend, **MySQL 8.0** for relational persistence, and **Next.js 14 / React 18 / TradingView Lightweight Charts** on the frontend. The platform integrates with the official **Upstox Developer API (Protobuf V3 Feed & REST APIs)** for licensed Indian equity and F&O market data (NSE & BSE).
+A production-grade, high-performance stock market analysis platform engineered with **Java 17/21 & Spring Boot 3.3** on the backend, **MySQL 8.0** for relational persistence, and **Next.js 14 / React 18 / TradingView Lightweight Charts** on the frontend. The platform integrates directly with the official **Upstox Developer API (Protobuf V3 Feed & REST APIs)** to ingest and analyze licensed Indian equity and F&O market data (NSE & BSE).
 
 ---
 
 ## 📋 Table of Contents
 
-- [Vision \& Core Philosophy](#-vision--core-philosophy)
-- [Zero-Mock Design Principles](#-zero-mock-design-principles)
-- [Upstox API Pricing \& Segment Notice](#-upstox-api-pricing--segment-notice)
+- [Vision \& Core Capabilities](#-vision--core-capabilities)
+- [Key Features \& Interactive Panels](#-key-features--interactive-panels)
+  - [1. Real-Time Stock Search \& Autocomplete](#1-real-time-stock-search--autocomplete)
+  - [2. Live Market Watchlist with Persistence](#2-live-market-watchlist-with-persistence)
+  - [3. Interactive Technical Charts (TradingView)](#3-interactive-technical-charts-tradingview)
+  - [4. Option Chain Matrix \& Max Pain](#4-option-chain-matrix--max-pain)
+  - [5. Fundamental Analysis \& Key Ratios](#5-fundamental-analysis--key-ratios)
+  - [6. 22-Category Institutional Scorecard (50 Points)](#6-22-category-institutional-scorecard-50-points)
+  - [7. Transparent Connection State Banner](#7-transparent-connection-state-banner)
+- [Strict Zero-Mock Design Principles](#-strict-zero-mock-design-principles)
 - [Technology Stack](#-technology-stack)
-- [High-Level System Architecture](#-high-level-system-architecture)
-- [Data Domains \& Ingestion Pipeline](#-data-domains--ingestion-pipeline)
+- [System Architecture \& Ingestion Pipeline](#-system-architecture--ingestion-pipeline)
+  - [Two-Tier LRU Subscription Manager](#two-tier-lru-subscription-manager)
+  - [Protobuf V3 Binary Decoding](#protobuf-v3-binary-decoding)
+- [Project Directory Structure](#-project-directory-structure)
 - [Database Schema \& Persistence](#-database-schema--persistence)
-- [Analysis Engine \& Mathematical Models](#-analysis-engine--mathematical-models)
-  - [1. Technical Analysis Engine](#1-technical-analysis-engine)
-  - [2. Option Analytics Engine](#2-option-analytics-engine)
-  - [3. 22-Category / 50-Point Stock Scoring Engine](#3-22-category--50-point-stock-scoring-engine)
-  - [4. Fundamental Analysis \& Ratios](#4-fundamental-analysis--ratios)
-- [End-to-End Data Ingestion Services](#-end-to-end-data-ingestion-services)
-- [Upstox API Integration \& Token Setup Guide](#-upstox-api-integration--token-setup-guide)
-  - [Step 1: Create Your Developer App](#step-1-create-your-developer-app)
-  - [Step 2: Security \& Environment Setup](#step-2-security--environment-setup)
-  - [Step 3: OAuth Callback Handler \& Token Persistence](#step-3-oauth-callback-handler--token-persistence)
-  - [Step 4: Troubleshooting "No Segments Active" Error](#step-4-troubleshooting-no-segments-active-error)
-- [Step-by-Step Execution Guide](#-step-by-step-execution-guide)
+- [Upstox API Integration \& Token Setup](#-upstox-api-integration--token-setup)
+  - [Step 1: Create Developer App](#step-1-create-developer-app)
+  - [Step 2: Environment Variables Configuration](#step-2-environment-variables-configuration)
+  - [Step 3: Dynamic OAuth Exchange](#step-3-dynamic-oauth-exchange)
+- [🚀 Step-by-Step Execution Guide](#-step-by-step-execution-guide)
   - [Prerequisites](#prerequisites)
-  - [Method 1: Local Development Setup (Recommended)](#method-1-local-development-setup-recommended)
-  - [Method 2: Docker Compose Setup](#method-2-docker-compose-setup)
-- [REST API Reference](#-rest-api-reference)
-- [Testing \& Verification Strategy](#-testing--verification-strategy)
-- [SEBI Compliance \& Disclaimer](#-sebi-compliance--disclaimer)
+  - [1. Setup MySQL Database](#1-setup-mysql-database)
+  - [2. Start Spring Boot Backend](#2-start-spring-boot-backend)
+  - [3. Start Next.js Frontend](#3-start-nextjs-frontend)
+- [🔌 REST API Reference](#-rest-api-reference)
+- [🧪 Automated Testing \& Verification](#-automated-testing--verification)
+- [⚖️ SEBI Compliance \& Legal Disclaimer](#-sebi-compliance--legal-disclaimer)
 
 ---
 
-## 🎯 Vision & Core Philosophy
+## 🎯 Vision & Core Capabilities
 
-This platform is engineered as a unified analytical workspace replacing the need to juggle separate tools like NSE India, Screener.in, TradingView, and broker terminals. It combines:
+This platform is designed as an institutional-grade decision-support ecosystem that replaces fragmented tools (NSE India, Screener.in, TradingView, and broker terminals) into a single cohesive, high-speed interface:
 
-1. **Live Market Data**: Real-time tick prices, volumes, Open Interest (OI), and option chain matrices.
-2. **Fundamental Analysis**: Automated retrieval and evaluation of revenue growth, margins, return ratios (ROE/ROCE), cash flow quality, debt levels, shareholding trends, and governance checks.
-3. **Technical Analysis**: 20/50/200 EMA alignment, RSI (14), MACD (12, 26, 9), and dynamic Pivot Point Support & Resistance detection.
-4. **Structured Decision Framework**: A 22-category, 50-point checklist system with automated baseline ratings pre-filling that transforms complex qualitative and quantitative data into an objective Buy/Hold/Sell assessment.
-
----
-
-## 🛡️ Zero-Mock Design Principles
-
-1. **Strict Zero-Mock Data Guarantee**: The system never presents synthetic or fabricated numbers (`Math.random()` or sample fallbacks) as live data. Every UI screen displays one of three explicit system states:
-   - `LIVE`: Sub-second live WebSocket stream active during NSE market hours (09:15 - 15:30 IST).
-   - `HISTORICAL_ONLY`: Market closed or API stream idle; displaying last verified EOD candle data.
-   - `NOT_CONNECTED`: Upstox API token unconfigured or expired; prompts user setup without showing fake charts.
-2. **Fail Loud Exception Guard**: If a metric cannot be computed due to missing data, the backend throws a typed `MarketDataUnavailableException` handled by `GlobalExceptionHandler` (HTTP 404) instead of returning `0.0` or `null` fallbacks.
-3. **Dynamic Access Token Storage**: Token reference stored in thread-safe `AtomicReference<String>` inside `UpstoxWebSocketStreamer`. OAuth token exchanges dynamically update the streamer and all REST sync services without requiring server restarts.
-4. **Upstox V3 Protobuf Decoding**: Binary WebSocket payloads are unmarshalled using official Protobuf V3 Java classes generated by `protobuf-maven-plugin` from [MarketDataFeedV3.proto](file:///f:/Stock%20Market%20Analysis/backend/src/main/proto/MarketDataFeedV3.proto).
-5. **Binary Subscriptions & 2-Tier LRU Engine**: Transmits binary byte array WebSocket subscription frames. Tier 1 handles spot watchlist subscriptions (`POST /api/watchlist/{symbol}/subscribe`) and Tier 2 handles active option strike streaming (`POST /api/watchlist/{symbol}/subscribe-option-chain`).
-6. **NSE Trading Holiday Calendar**: [MarketHoursUtil.java](file:///f:/Stock%20Market%20Analysis/backend/src/main/java/com/stock/analysis/util/MarketHoursUtil.java) enforces official NSE trading holidays (Republic Day, Mahashivratri, Holi, Good Friday, Independence Day, Gandhi Jayanti, Diwali, Christmas, etc.).
+1. **Sub-Second Live Market Ingestion**: Streams binary Protobuf V3 market quotes (LTP, bid/ask depth, daily volume, Open Interest).
+2. **Deterministic Technical Engine**: Mathematical calculation of 20/50/200 Exponential Moving Averages (EMA), RSI (14), MACD (12, 26, 9), and Floor Pivot Support/Resistance levels.
+3. **Derivatives Analytics**: Real-time Put-Call Ratio (PCR), At-The-Money (ATM) strike calculation, Implied Volatilities (IV), and Max Pain minimization.
+4. **Fundamental Evaluation**: Automated extraction of TTM revenues, net profit, EBITDA margins, return metrics (ROE, ROCE), leverage (Debt-to-Equity), and shareholding distribution (Promoters, FIIs, DIIs, Pledge %).
+5. **Structured 22-Category Scorecard**: Converts quantitative metrics into an objective 50-point investment scoring framework with thesis documentation and exit criteria.
 
 ---
 
-## 🔄 End-to-End Data Ingestion Services
+## 🖥️ Key Features & Interactive Panels
 
-1. **`InstrumentMasterSyncService`**: Downloads official Upstox complete JSON dump (`https://assets.upstox.com/market-quote/instruments/exchange/complete.json.gz`), stream-parses JSON objects using Jackson, and populates `InstrumentRepository` with the entire NSE Equity and Derivatives universe.
-2. **`HistoricalDataSyncService`**: Fetches real historical candles from Upstox REST API `GET /v2/historical-candle/{instrumentKey}/{interval}/{toDate}/{fromDate}` using the live dynamic token and stores them in `CandleRepository` lazily on demand when technical indicators are requested for a new symbol.
-3. **`OptionChainSyncService`**: Fetches real option chain data from Upstox REST API `GET /v2/option/chain?instrument_key={key}&expiry_date={expiry}` using [ExpiryUtil.java](file:///f:/Stock%20Market%20Analysis/backend/src/main/java/com/stock/analysis/util/ExpiryUtil.java) to resolve upcoming Tuesday (NSE) or Thursday (BSE) option contract expiry dates.
-4. **`FundamentalsSyncService`**: Fetches real fundamental financial statements and ratios by ISIN from Upstox REST endpoints (`/v2/fundamentals/{isin}/income-statement`, `/key-ratios`, `/share-holdings`) with defensive multi-key fallback extraction and stores profiles in `FundamentalsRepository`.
-5. **`ScorecardAutoSuggestService`**: Evaluates recorded fundamental ratios and technical indicators to automatically pre-fill baseline 0.0–5.0 category ratings for the 22-category checklist (`GET /api/scorecard/{symbol}/auto-suggest`).
+### 1. Real-Time Stock Search & Autocomplete
+- Searches the full NSE Equity universe (~2,500+ instruments) in real time with debounced backend queries (`/api/instruments/search`).
+- Shows company names, ISIN identifiers, and exchange tags.
+- Selecting any symbol instantly triggers live WebSocket subscription and loads all technical, derivative, and fundamental metrics.
+
+### 2. Live Market Watchlist with Persistence
+- Fast-access top bar with one-click stock switching.
+- Pin or unpin symbols dynamically.
+- State is synchronized with browser `localStorage`, ensuring personalized watchlists persist across sessions.
+
+### 3. Interactive Technical Charts (TradingView)
+- Powered by `lightweight-charts` with smooth dark mode styling.
+- Renders historical OHLCV candlestick series with customizable intervals (`1d`, `1m`, `5m`, `15m`).
+- Overlays EMA 20 (Blue), EMA 50 (Orange), and EMA 200 (Purple) with interactive indicator toggles.
+- Real-time technical summary badge (RSI momentum, MACD histogram, and Pivot Support/Resistance).
+
+### 4. Option Chain Matrix & Max Pain
+- Analyzes upcoming Tuesday (NSE) or Thursday (BSE) expiry contracts.
+- Displays Call OI, Put OI, Strike Prices, Call/Put LTP, and Implied Volatility (IV).
+- Automatically calculates and highlights the **Max Pain Strike** (the price where option writers experience minimum cumulative loss) and **Put-Call Ratio (PCR)**.
+
+### 5. Fundamental Analysis & Key Ratios
+- Financial health metrics: 5-Year Revenue CAGR, Net Margins, EBITDA Margins.
+- Capital efficiency: Return on Equity (ROE) & Return on Capital Employed (ROCE).
+- Solvency: Debt-to-Equity ratio.
+- Ownership: Promoter holding, Promoter pledge %, FII %, and DII % ownership.
+- Governance risk flag detection.
+
+### 6. 22-Category Institutional Scorecard (50 Points)
+- 22 distinct investment categories across Growth, Quality, Valuation, Financial Health, and Technicals.
+- **Auto-Suggest Engine**: Automatically seeds baseline scores based on live fundamentals and indicators (`GET /api/scorecard/{symbol}/auto-suggest`).
+- Interactive scoring sliders (0.0 to 5.0 rating per category).
+- Automatic recommendation classification:
+  - **40.0 - 50.0**: `STRONG BUY CANDIDATE`
+  - **30.0 - 39.5**: `MODERATE BUY / ACCUMULATE`
+  - **20.0 - 29.5**: `NEUTRAL / HOLD`
+  - **< 20.0**: `AVOID / HIGH RISK`
+- Persistent Investment Thesis and Exit Rules worksheet saved to MySQL database (`POST /api/scorecard/{symbol}`).
+
+### 7. Transparent Connection State Banner
+- Explicit real-time feed banner showing exact system connection states:
+  - 🟢 **`LIVE`**: Active sub-second Protobuf WebSocket stream during NSE market hours (09:15 - 15:30 IST).
+  - 🟡 **`HISTORICAL_ONLY`**: Outside market hours or stream idle; serving verified EOD database records.
+  - 🔴 **`NOT_CONNECTED`**: Access token required or network unavailable.
 
 ---
 
-## 🗄️ Database Schema & Persistence
+## 🛡️ Strict Zero-Mock Design Principles
 
-- **`instruments`**: Maps exchange symbols (`NSE_EQ`, `NSE_FO`), lot sizes, strike prices, expiry dates, and underlying security tokens.
-- **`ticks`**: Stores ephemeral market ticks (LTP, bid/ask, volume, Open Interest) indexed by symbol and timestamp.
-- **`candles`**: Stores historical OHLCV data across interval granularities (`1m`, `5m`, `15m`, `1d`).
-- **`option_chain_snapshots`**: Records spot price, ATM strike, PCR ratio, Max Pain strike, and raw strike matrix JSON snapshots.
-- **`fundamentals`**: Stores financial metrics including revenue, net profit, EBITDA margins, ROE, ROCE, debt-to-equity, cash flow, promoter pledge %, and governance flags.
-- **`stock_scorecards`**: Stores symbol ratings across all 22 categories, calculated total score out of 50.0, assigned recommendation band, investment thesis, and pre-defined exit rules.
+1. **No Synthetic Data Generation**: All random-walk candle generators, mock option chains, and fake fundamental generators have been completely eliminated.
+2. **Honest-Fail Architecture**: When Upstox API credentials, tokens, or network requests fail, the application throws a typed `MarketDataUnavailableException` (HTTP 404/500), clearly alerting the user instead of displaying synthetic charts.
+3. **Database-API Interval Mapping**: Consistent translation between database storage (`"1d"`, `"1m"`) and Upstox REST URL paths (`"day"`, `"1minute"`), ensuring all backfilled data matches follow-up queries.
+4. **ISIN-Based Instrument Keys**: Accurate Upstox instrument key lookup via `InstrumentRepository` for guaranteed REST API resolution.
 
 ---
 
-## 🔑 Upstox API Integration & Token Setup Guide
+## 🛠️ Technology Stack
 
-### Step 1: Create Your Developer App
-1. Go to the [Upstox Developer Console](https://upstox.com/developer/).
-2. Log in with your Upstox trading credentials.
-3. Click **`Manage API Apps`** ➔ **`+ App`** (Create New App).
-4. Enter the details:
-   - **App Name**: `Stock Analysis App`
-   - **Redirect URL**: `http://localhost:3000/api/auth/upstox/callback`
-5. Click **Confirm / Create App**. Upstox will display your **API Key** and **API Secret**.
+| Layer | Technologies |
+|---|---|
+| **Backend Framework** | Java 17/21, Spring Boot 3.3.2, Spring Data JPA, Spring WebSocket (STOMP) |
+| **Data Ingestion** | Upstox API V2 / V3, Google Protobuf (Protobuf Java 3.25.3), Java-WebSocket 1.5.6 |
+| **Resilience & Caching** | Resilience4j CircuitBreaker, Caffeine / Concurrent In-Memory Cache |
+| **Relational Database** | MySQL 8.0, Hibernate ORM |
+| **Frontend Framework** | Next.js 14 (App Router), React 18, TypeScript |
+| **Styling & Icons** | Tailwind CSS, Lucide React |
+| **Charting Library** | TradingView Lightweight Charts (`lightweight-charts`) |
 
-### Step 2: Security & Environment Setup
-Credentials are strictly managed via environment variables (never committed to git):
-1. Copy [.env.example](file:///f:/Stock%20Market%20Analysis/.env.example) to `.env`.
-2. Enter your API Key, API Secret, and Access Token:
+---
+
+## 🏗️ System Architecture & Ingestion Pipeline
+
+```
+                                 ┌───────────────────────────────┐
+                                 │   Upstox Developer Servers    │
+                                 │ (V3 Protobuf WS & V2 REST API)│
+                                 └──────────────┬────────────────┘
+                                                │
+                          ┌─────────────────────┴─────────────────────┐
+                          │                                           │
+                          ▼ (Binary Protobuf Feed)                    ▼ (JSON REST APIs)
+             ┌───────────────────────────┐               ┌───────────────────────────┐
+             │  UpstoxWebSocketStreamer  │               │ Ingestion & Sync Services │
+             │  - Protobuf V3 Unmarshal  │               │ - HistoricalDataSync      │
+             │  - SpotPriceCacheService  │               │ - OptionChainSync         │
+             │  - 2-Tier LRU Sub Manager │               │ - FundamentalsSync        │
+             └─────────────┬─────────────┘               │ - InstrumentMasterSync    │
+                           │                             └─────────────┬─────────────┘
+                           │                                           │
+                           ▼                                           ▼
+             ┌───────────────────────────────────────────────────────────────┐
+             │                     Spring Boot Service Layer                 │
+             │  - TechnicalAnalysisService   - OptionChainAnalysisService    │
+             │  - ScorecardEvaluationService - ScorecardAutoSuggestService   │
+             └───────────────────────────────┬───────────────────────────────┘
+                                             │
+                          ┌──────────────────┴──────────────────┐
+                          │                                     │
+                          ▼                                     ▼
+             ┌────────────────────────┐            ┌────────────────────────┐
+             │    MySQL 8 Database    │            │   Next.js 14 Client    │
+             │  - instruments         │            │  - TradingView Charts  │
+             │  - candles             │◄───────────┤  - Option Chain Matrix │
+             │  - option_chain_snaps  │ (REST APIs)│  - 22-Cat Scorecard    │
+             │  - fundamentals        │            │  - Live Watchlist      │
+             │  - stock_scorecards    │            │  - Real-Time Search    │
+             └────────────────────────┘            └────────────────────────┘
+```
+
+### Two-Tier LRU Subscription Manager
+To optimize Upstox WebSocket bandwidth:
+- **Tier 1 (Spot Watchlist)**: Maintains up to 2,500 active stock tokens with a 15-minute idle eviction window.
+- **Tier 2 (Option Chain Strikes)**: Subscribes up to 40 active strike contracts per symbol with a 2-minute LRU eviction window.
+
+### Protobuf V3 Binary Decoding
+Payloads received from `wss://api.upstox.com/v3/feed/market-data-feed` are parsed directly into Java objects using classes compiled from [MarketDataFeedV3.proto](file:///f:/Stock%20Market%20Analysis/backend/src/main/proto/MarketDataFeedV3.proto).
+
+---
+
+## 📁 Project Directory Structure
+
+```
+Stock Market Analysis/
+├── backend/                               # Spring Boot Application
+│   ├── pom.xml                            # Maven dependencies & Protobuf compiler plugin
+│   ├── src/main/proto/
+│   │   └── MarketDataFeedV3.proto         # Official Upstox Protobuf V3 schema
+│   ├── src/main/resources/
+│   │   └── application.yml                # Database, Upstox, & Resilience4j configuration
+│   └── src/main/java/com/stock/analysis/
+│       ├── controller/                    # REST API Controllers (Analysis, Market, Watchlist, Scorecard)
+│       ├── dto/                           # Data Transfer Objects
+│       ├── engine/                        # Technical, Option Chain, & Scorecard Engines
+│       ├── enums/                         # ConnectionState, Exchange (NSE_EQ, NSE_FO)
+│       ├── exception/                     # GlobalExceptionHandler & MarketDataUnavailableException
+│       ├── ingestion/                     # UpstoxWebSocketStreamer & LruSubscriptionManager
+│       ├── model/                         # JPA Entities (Candle, Tick, Instrument, Fundamentals, etc.)
+│       ├── repository/                    # Spring Data JPA Repositories
+│       ├── service/                       # Historical, Option Chain, Fundamentals, & Sync Services
+│       └── util/                          # MarketHoursUtil, ExpiryUtil
+│
+├── frontend/                              # Next.js 14 Web Application
+│   ├── package.json                       # Dependencies (lightweight-charts, lucide-react, etc.)
+│   ├── tsconfig.json                      # TypeScript configuration
+│   └── src/
+│       ├── app/
+│       │   ├── layout.tsx                 # Root application layout
+│       │   ├── page.tsx                   # Main Dashboard component
+│       │   └── api/auth/upstox/callback/  # OAuth Callback Route Handler
+│       ├── components/                    # Modular UI components
+│       │   ├── ConnectionStateBanner.tsx  # Live stream status banner
+│       │   ├── TradingViewChart.tsx       # Interactive candlestick & indicator chart
+│       │   ├── OptionChainMatrix.tsx      # Derivatives & Max Pain analysis table
+│       │   ├── FundamentalsPanel.tsx      # Financial statements & ratio breakdown
+│       │   └── ScorecardWorksheet.tsx     # 22-category checklist & thesis worksheet
+│       └── types/                         # TypeScript interfaces & definitions
+│
+├── .env.example                           # Template for Upstox API keys
+└── README.md                              # Project documentation
+```
+
+---
+
+## 🔑 Upstox API Integration & Token Setup
+
+### Step 1: Create Developer App
+1. Log in to the [Upstox Developer Console](https://upstox.com/developer/).
+2. Click **Manage API Apps** ➔ **+ App** (Create New App).
+3. Set **Redirect URL**: `http://localhost:3000/api/auth/upstox/callback`.
+4. Copy your **API Key** and **API Secret**.
+
+### Step 2: Environment Variables Configuration
+Create a `.env` file in the root directory:
 
 ```bash
 UPSTOX_API_KEY=your_upstox_api_key
@@ -103,83 +232,99 @@ UPSTOX_REDIRECT_URI=http://localhost:3000/api/auth/upstox/callback
 UPSTOX_ACCESS_TOKEN=your_generated_access_token
 ```
 
-### Step 3: OAuth Callback Handler & Token Persistence
-The Next.js frontend includes an OAuth callback route at [frontend/src/app/api/auth/upstox/callback/route.ts](file:///f:/Stock%20Market%20Analysis/frontend/src/app/api/auth/upstox/callback/route.ts) that handles authorization redirects, exchanges `code` parameters for `access_token` strings via Upstox REST API, and posts the token to backend `/api/auth/upstox/token` to dynamically reconnect the WebSocket streamer and update all REST sync services.
+### Step 3: Dynamic OAuth Exchange
+When logging in via Upstox OAuth:
+1. Upstox redirects to `http://localhost:3000/api/auth/upstox/callback?code=...`.
+2. The Next.js route handler exchanges the `code` for an `access_token` and pushes it to backend `POST /api/auth/upstox/token`.
+3. The backend dynamically updates `UpstoxWebSocketStreamer` in-memory without needing a server restart.
 
 ---
 
 ## 🚀 Step-by-Step Execution Guide
 
 ### Prerequisites
-- **Java**: JDK 17 or 21 installed (`java -version`)
+- **Java**: JDK 17 or 21 (`java -version`)
 - **Maven**: Apache Maven 3.8+ (`mvn -v`)
-- **Node.js**: Node v20+ (`node -v`) & NPM 10+ (`npm -v`)
-- **MySQL**: MySQL 8.0+ running on port `3306`
+- **Node.js**: Node.js 18+ & NPM (`node -v`, `npm -v`)
+- **MySQL**: MySQL Server 8.0+ running on port `3306`
 
 ---
 
-### Local Development Setup (Recommended)
+### 1. Setup MySQL Database
+Ensure MySQL is running on port `3306`:
+```sql
+CREATE DATABASE IF NOT EXISTS stockdb;
+```
+Verify `backend/src/main/resources/application.yml` has your MySQL password:
+```yaml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/stockdb?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Kolkata
+    username: root
+    password: your_mysql_password
+```
 
-#### 1. Start MySQL Server
-Ensure MySQL server is running on port `3306` with credentials matching [application.yml](file:///f:/Stock%20Market%20Analysis/backend/src/main/resources/application.yml):
-- **Database Name**: `stockdb` (auto-created on startup)
-- **Username**: `root`
-- **Password**: `your_db_password`
+---
 
-#### 2. Build & Launch Spring Boot Backend
-Open a terminal in the workspace root:
+### 2. Start Spring Boot Backend
+Open a terminal in the project directory:
 ```powershell
 cd backend
 mvn spring-boot:run
 ```
-- **Backend Port**: `http://localhost:8080`
-- **Health Check**: `http://localhost:8080/api/market/status`
+- **Backend API**: `http://localhost:8080`
+- **Stream Status**: `http://localhost:8080/api/market/status`
 
-#### 3. Build & Launch Next.js Frontend
-Open a second terminal in the workspace root:
+---
+
+### 3. Start Next.js Frontend
+Open a second terminal in the project directory:
 ```powershell
 cd frontend
+npm install
 npm run dev
 ```
-- **Frontend App**: Open `http://localhost:3000` in your browser.
+- **Web App**: Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
 ## 🔌 REST API Reference
 
-| Method | Endpoint | Description | Sample Response |
+| HTTP Method | Endpoint | Description | Query / Body Params |
 |---|---|---|---|
-| `GET` | `/api/market/status` | Current system stream health state (`LIVE`, `HISTORICAL_ONLY`, `NOT_CONNECTED`) | `{"source":"UPSTOX_V3_FEED","state":"HISTORICAL_ONLY","message":"..."}` |
-| `POST` | `/api/watchlist/{symbol}/subscribe` | Subscribes symbol spot quote to Tier 1 WebSocket feed via binary subscription frame | `{"symbol":"RELIANCE","status":"SUBSCRIBED"}` |
-| `POST` | `/api/watchlist/{symbol}/subscribe-option-chain` | Subscribes symbol option strike contracts to Tier 2 WebSocket feed via binary frame | `{"symbol":"RELIANCE","subscribedStrikesCount":40,"status":"SUBSCRIBED"}` |
-| `DELETE` | `/api/watchlist/{symbol}/unsubscribe` | Unsubscribes symbol token from stream | `{"symbol":"RELIANCE","status":"UNSUBSCRIBED"}` |
-| `GET` | `/api/market/ticks/{symbol}` | Latest spot tick (LTP, Volume, OI, Bid, Ask) | `{"symbol":"RELIANCE","ltp":2950.5,"volume":1250000}` |
-| `GET` | `/api/market/candles/{symbol}?interval=1d` | Historical OHLCV candle sequence | `[{"timestamp":"...","open":2900,"high":2960,"low":2890,"close":2950}]` |
-| `GET` | `/api/analysis/technicals/{symbol}` | Calculated EMAs, RSI(14), MACD, and Pivot S/R levels (triggers lazy backfill if empty) | `{"symbol":"RELIANCE","ema20":2910.4,"rsi14":58.2,"pivotPoint":2933.3}` |
-| `GET` | `/api/analysis/option-chain/{symbol}` | Option chain matrix, PCR ratio, ATM strike, Max Pain strike (uses Tuesday/Thursday SEBI expiry rules) | `{"spotPrice":24500,"atmStrike":24500,"putCallRatio":1.15,"maxPainStrike":24400}` |
-| `GET` | `/api/fundamentals/{symbol}` | Financial statements, margins, ROE/ROCE, pledge %, governance check (queries ISIN endpoints) | `{"symbol":"RELIANCE","revenueCagr5Yr":18.5,"roePct":21.2,"debtToEquity":0.12}` |
-| `GET` | `/api/scorecard/{symbol}/auto-suggest` | Generates pre-filled baseline 0.0–5.0 category ratings from fundamental and technical metrics | `{"totalScore":42.5,"recommendationBand":"STRONG BUY CANDIDATE"}` |
-| `POST` | `/api/auth/upstox/token` | Updates runtime access token in AtomicReference and triggers WebSocket streamer reconnect | `{"status":"TOKEN_UPDATED"}` |
+| `GET` | `/api/market/status` | Current live stream connection state (`LIVE`, `HISTORICAL_ONLY`, `NOT_CONNECTED`) | None |
+| `GET` | `/api/instruments/search` | Search NSE stock and index universe with autocomplete | `?query=TATAMOTORS` |
+| `POST` | `/api/watchlist/{symbol}/subscribe` | Subscribes stock to live Tier 1 WebSocket feed | None |
+| `POST` | `/api/watchlist/{symbol}/subscribe-option-chain` | Subscribes stock option strikes to Tier 2 WebSocket feed | None |
+| `DELETE` | `/api/watchlist/{symbol}/unsubscribe` | Unsubscribes stock from live stream | None |
+| `GET` | `/api/market/ticks/{symbol}` | Returns latest live tick (LTP, Volume, OI) | None |
+| `GET` | `/api/market/candles/{symbol}` | Retrieves historical OHLCV candle records | `?interval=1d` |
+| `GET` | `/api/analysis/technicals/{symbol}` | Calculates EMAs, RSI(14), MACD, and Pivot points | None |
+| `GET` | `/api/analysis/option-chain/{symbol}` | Analyzes option chain matrix, PCR ratio, & Max Pain | `?spotPrice=...&expiry=...` |
+| `GET` | `/api/fundamentals/{symbol}` | Retrieves financial statements, return ratios, & shareholding | None |
+| `GET` | `/api/scorecard/{symbol}/auto-suggest` | Generates baseline ratings for the 22 scorecard categories | None |
+| `POST` | `/api/scorecard/{symbol}` | Saves custom scorecard ratings, thesis, and exit rules to DB | JSON payload |
+| `POST` | `/api/auth/upstox/token` | Updates active runtime access token and triggers WS reconnect | `{"accessToken":"..."}` |
 
 ---
 
-## 🧪 Testing & Verification Strategy
+## 🧪 Automated Testing & Verification
 
-The backend includes a comprehensive JUnit 5 test suite verifying all mathematical calculations and exception handling:
+The backend includes a comprehensive JUnit 5 test suite covering mathematical engines and edge cases:
 
 ```powershell
 cd backend
 mvn test
 ```
 
-### Verified Test Suite:
-- **`TechnicalAnalysisServiceTest`**: Tests EMA 20/50/200, RSI 14, floor pivot math, and exception bounds.
-- **`OptionChainAnalysisServiceTest`**: Tests Put-Call Ratio (PCR), ATM strike determination, and Max Pain minimization.
-- **`ScorecardEvaluationServiceTest`**: Tests 22-category weight calculations and recommendation band mapping.
+### Test Suite Coverage:
+- **`TechnicalAnalysisServiceTest`**: Verifies EMA (20/50/200), RSI (14), MACD, and Pivot point formulas.
+- **`OptionChainAnalysisServiceTest`**: Validates Put-Call Ratio (PCR), ATM strike selection, and Max Pain minimization.
+- **`ScorecardEvaluationServiceTest`**: Validates weight aggregations and recommendation threshold bands.
 
 ---
 
-## ⚖️ SEBI Compliance & Disclaimer
+## ⚖️ SEBI Compliance & Legal Disclaimer
 
 > [!CAUTION]
-> **Legal Disclaimer:** This software application is built strictly as a personal decision-support framework and financial analysis platform. It **does not** provide SEBI-registered investment advice, stock tips, or automated trading recommendations. Financial markets involve substantial risk of loss. Always conduct independent research and consult a SEBI-registered financial advisor before executing trades.
+> **Legal Disclaimer:** This software application is built strictly as a personal decision-support framework and educational market analysis platform. It **does not** provide SEBI-registered investment advice, stock tips, or automated trading recommendations. Financial markets involve substantial risk of loss. Always conduct independent research and consult a SEBI-registered financial advisor before making investment decisions.

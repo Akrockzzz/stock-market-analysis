@@ -17,11 +17,37 @@ interface SearchResult {
   instrumentType: string;
 }
 
+const DEFAULT_WATCHLIST = ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'TATAMOTORS', 'SBIN', 'NIFTY'];
+
 export default function Dashboard() {
   const [selectedSymbol, setSelectedSymbol] = useState('RELIANCE');
   const [activeTab, setActiveTab] = useState<'chart' | 'option-chain' | 'fundamentals' | 'scorecard'>('chart');
   
-  const [watchlist, setWatchlist] = useState<string[]>(['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'TATAMOTORS', 'SBIN', 'NIFTY']);
+  const [watchlist, setWatchlist] = useState<string[]>(DEFAULT_WATCHLIST);
+
+  // Load Watchlist from LocalStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('stock_analysis_watchlist');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setWatchlist(parsed);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load watchlist from localStorage:', err);
+    }
+  }, []);
+
+  // Save Watchlist to LocalStorage on updates
+  useEffect(() => {
+    try {
+      localStorage.setItem('stock_analysis_watchlist', JSON.stringify(watchlist));
+    } catch (err) {
+      console.error('Failed to save watchlist to localStorage:', err);
+    }
+  }, [watchlist]);
   
   // Real-time Stock Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -82,6 +108,17 @@ export default function Dashboard() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
+  // Subscribe selected symbol to live WebSocket stream
+  const subscribeToLiveStream = async (sym: string) => {
+    try {
+      await fetch(`http://localhost:8080/api/watchlist/${encodeURIComponent(sym.toUpperCase())}/subscribe`, {
+        method: 'POST',
+      });
+    } catch (err) {
+      console.error('Failed to subscribe symbol to live stream:', err);
+    }
+  };
+
   // Fetch backend market data in fast parallel calls
   const loadSymbolData = async (sym: string) => {
     const upperSym = sym.toUpperCase();
@@ -122,11 +159,13 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadSymbolData(selectedSymbol);
+    subscribeToLiveStream(selectedSymbol);
   }, [selectedSymbol]);
 
   const handleSelectSymbol = (sym: string) => {
     const upper = sym.toUpperCase();
     setSelectedSymbol(upper);
+    subscribeToLiveStream(upper);
     if (!watchlist.includes(upper)) {
       setWatchlist((prev) => [...prev, upper]);
     }

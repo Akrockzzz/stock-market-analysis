@@ -54,7 +54,7 @@ public class AnalysisController {
         if (candles.isEmpty()) {
             instrumentRepository.findBySymbolAndExchange(upperSymbol, Exchange.NSE_EQ)
                     .ifPresent(instrument -> historicalDataSyncService.fetchAndStoreHistoricalCandles(
-                            upperSymbol, instrument.getInstrumentKey(), "day", LocalDate.now().minusYears(1), LocalDate.now()));
+                            upperSymbol, instrument.getInstrumentKey(), "1d", LocalDate.now().minusYears(1), LocalDate.now()));
 
             candles = candleRepository.findRecentCandles(upperSymbol, "1d", PageRequest.of(0, 200));
         }
@@ -84,16 +84,24 @@ public class AnalysisController {
                     .orElse(null);
         }
 
+        if (currentSpot == null) {
+            List<Candle> recentCandles = candleRepository.findRecentCandles(upperSymbol, "1d", PageRequest.of(0, 1));
+            if (!recentCandles.isEmpty()) {
+                currentSpot = recentCandles.get(0).getClose();
+            }
+        }
+
         LocalDate expiryDate = expiry != null ? LocalDate.parse(expiry) : ExpiryUtil.getNextValidExpiryDate(Exchange.NSE_EQ);
 
         OptionChainSnapshot snapshot = optionChainSnapshotRepository
                 .findFirstByUnderlyingSymbolAndExpiryDateOrderByTimestampDesc(upperSymbol, expiryDate)
                 .orElse(null);
 
-        if (snapshot == null) {
-            double calcSpot = currentSpot != null ? currentSpot : 2500.0;
+        if (snapshot == null && currentSpot != null) {
             var instrument = instrumentRepository.findBySymbolAndExchange(upperSymbol, Exchange.NSE_EQ).orElse(null);
-            snapshot = optionChainSyncService.fetchAndStoreOptionChain(upperSymbol, instrument != null ? instrument.getInstrumentKey() : "NSE_EQ|" + upperSymbol, expiryDate, calcSpot);
+            if (instrument != null) {
+                snapshot = optionChainSyncService.fetchAndStoreOptionChain(upperSymbol, instrument.getInstrumentKey(), expiryDate, currentSpot);
+            }
         }
 
         if (snapshot == null) {

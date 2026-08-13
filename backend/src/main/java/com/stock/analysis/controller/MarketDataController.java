@@ -1,16 +1,21 @@
 package com.stock.analysis.controller;
 
 import com.stock.analysis.dto.ConnectionStatusDto;
+import com.stock.analysis.enums.Exchange;
 import com.stock.analysis.ingestion.UpstoxWebSocketStreamer;
 import com.stock.analysis.model.Candle;
+import com.stock.analysis.model.Instrument;
 import com.stock.analysis.model.Tick;
 import com.stock.analysis.repository.CandleRepository;
+import com.stock.analysis.repository.InstrumentRepository;
+import com.stock.analysis.service.HistoricalDataSyncService;
 import com.stock.analysis.service.SpotPriceCacheService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -22,8 +27,8 @@ public class MarketDataController {
     private final UpstoxWebSocketStreamer webSocketStreamer;
     private final SpotPriceCacheService spotPriceCacheService;
     private final CandleRepository candleRepository;
-
-    private final com.stock.analysis.service.HistoricalDataSyncService historicalDataSyncService;
+    private final InstrumentRepository instrumentRepository;
+    private final HistoricalDataSyncService historicalDataSyncService;
 
     @GetMapping("/status")
     public ResponseEntity<ConnectionStatusDto> getStatus() {
@@ -45,7 +50,14 @@ public class MarketDataController {
         List<Candle> candles = candleRepository.findRecentCandles(upperSymbol, interval, PageRequest.of(0, 100));
 
         if (candles.isEmpty()) {
-            candles = historicalDataSyncService.fetchAndStoreHistoricalCandles(upperSymbol, "NSE_EQ|" + upperSymbol, interval, java.time.LocalDate.now().minusDays(90), java.time.LocalDate.now());
+            String instrumentKey = instrumentRepository.findBySymbolAndExchange(upperSymbol, Exchange.NSE_EQ)
+                    .map(Instrument::getInstrumentKey)
+                    .orElse(null);
+
+            if (instrumentKey != null) {
+                candles = historicalDataSyncService.fetchAndStoreHistoricalCandles(
+                        upperSymbol, instrumentKey, interval, LocalDate.now().minusDays(90), LocalDate.now());
+            }
         }
 
         return ResponseEntity.ok(candles);

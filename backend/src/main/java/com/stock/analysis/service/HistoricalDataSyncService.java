@@ -35,10 +35,13 @@ public class HistoricalDataSyncService {
         List<Candle> savedCandles = new ArrayList<>();
         String accessToken = webSocketStreamer.getAccessToken();
 
+        String upstoxInterval = mapToUpstoxInterval(interval);
+        String dbInterval = mapToDbInterval(interval);
+
         if (accessToken != null && !accessToken.isBlank()) {
             try {
                 String url = String.format("%s/historical-candle/%s/%s/%s/%s",
-                        baseUrl, instrumentKey, interval,
+                        baseUrl, instrumentKey, upstoxInterval,
                         toDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
                         fromDate.format(DateTimeFormatter.ISO_LOCAL_DATE));
 
@@ -61,7 +64,7 @@ public class HistoricalDataSyncService {
                             Candle candle = Candle.builder()
                                     .instrumentKey(instrumentKey)
                                     .symbol(symbol.toUpperCase())
-                                    .intervalName(interval)
+                                    .intervalName(dbInterval)
                                     .timestamp(ts)
                                     .open(cNode.get(1).asDouble())
                                     .high(cNode.get(2).asDouble())
@@ -75,79 +78,47 @@ public class HistoricalDataSyncService {
                         }
                         if (!savedCandles.isEmpty()) {
                             candleRepository.saveAll(savedCandles);
+                            log.info("Fetched and saved {} historical candles for {}", savedCandles.size(), symbol);
                         }
                     }
                 }
             } catch (Exception e) {
                 log.error("Failed to fetch Upstox historical candles for symbol: " + symbol, e);
             }
+        } else {
+            log.warn("Cannot fetch Upstox historical candles for {}: Access token is missing.", symbol);
         }
 
-        if (savedCandles.isEmpty()) {
-            savedCandles = generateFallbackCandles(symbol, instrumentKey, fromDate, toDate);
-            if (!savedCandles.isEmpty()) {
-                candleRepository.saveAll(savedCandles);
-                log.info("Generated and saved {} verified sample historical daily candles for {}", savedCandles.size(), symbol);
-            }
-        }
         return savedCandles;
     }
 
-    private List<Candle> generateFallbackCandles(String symbol, String instrumentKey, LocalDate fromDate, LocalDate toDate) {
-        List<Candle> candles = new ArrayList<>();
-        double basePrice = getBasePriceForSymbol(symbol);
-        double currentPrice = basePrice * 0.90;
-
-        LocalDate date = fromDate;
-        java.util.Random random = new java.util.Random(symbol.hashCode());
-
-        while (!date.isAfter(toDate)) {
-            if (date.getDayOfWeek() != java.time.DayOfWeek.SATURDAY && date.getDayOfWeek() != java.time.DayOfWeek.SUNDAY) {
-                double changePct = (random.nextDouble() - 0.48) * 0.035;
-                double open = currentPrice;
-                double close = Math.round(open * (1 + changePct) * 100.0) / 100.0;
-                double high = Math.round(Math.max(open, close) * (1 + random.nextDouble() * 0.015) * 100.0) / 100.0;
-                double low = Math.round(Math.min(open, close) * (1 - random.nextDouble() * 0.015) * 100.0) / 100.0;
-                long volume = 500000L + random.nextInt(1500000);
-
-                Instant ts = date.atTime(15, 30).atZone(java.time.ZoneId.of("Asia/Kolkata")).toInstant();
-
-                candles.add(Candle.builder()
-                        .instrumentKey(instrumentKey != null ? instrumentKey : "NSE_EQ|" + symbol)
-                        .symbol(symbol.toUpperCase())
-                        .intervalName("1d")
-                        .timestamp(ts)
-                        .open(open)
-                        .high(high)
-                        .low(low)
-                        .close(close)
-                        .volume(volume)
-                        .openInterest(0L)
-                        .build());
-
-                currentPrice = close;
-            }
-            date = date.plusDays(1);
-        }
-        return candles;
+    private String mapToUpstoxInterval(String interval) {
+        if (interval == null) return "day";
+        String lower = interval.toLowerCase();
+        if (lower.equals("1d") || lower.equals("day") || lower.equals("daily")) return "day";
+        if (lower.equals("1m") || lower.equals("1minute")) return "1minute";
+        if (lower.equals("3m") || lower.equals("3minute")) return "3minute";
+        if (lower.equals("5m") || lower.equals("5minute")) return "5minute";
+        if (lower.equals("15m") || lower.equals("15minute")) return "15minute";
+        if (lower.equals("30m") || lower.equals("30minute")) return "30minute";
+        if (lower.equals("60m") || lower.equals("1h") || lower.equals("60minute")) return "60minute";
+        if (lower.equals("1w") || lower.equals("week")) return "week";
+        if (lower.equals("1mth") || lower.equals("month")) return "month";
+        return interval;
     }
 
-    private double getBasePriceForSymbol(String symbol) {
-        switch (symbol.toUpperCase()) {
-            case "RELIANCE": return 2850.0;
-            case "TCS": return 3950.0;
-            case "INFY": return 1620.0;
-            case "HDFCBANK": return 1640.0;
-            case "ICICIBANK": return 1180.0;
-            case "SBIN": return 825.0;
-            case "TATAMOTORS": return 975.0;
-            case "BHARTIARTL": return 1450.0;
-            case "ITC": return 480.0;
-            case "NIFTY": return 24650.0;
-            case "BANKNIFTY": return 52200.0;
-            default:
-                int hash = Math.abs(symbol.hashCode());
-                return 250.0 + (hash % 2500);
-        }
+    private String mapToDbInterval(String interval) {
+        if (interval == null) return "1d";
+        String lower = interval.toLowerCase();
+        if (lower.equals("day") || lower.equals("daily") || lower.equals("1d")) return "1d";
+        if (lower.equals("1minute")) return "1m";
+        if (lower.equals("3minute")) return "3m";
+        if (lower.equals("5minute")) return "5m";
+        if (lower.equals("15minute")) return "15m";
+        if (lower.equals("30minute")) return "30m";
+        if (lower.equals("60minute")) return "1h";
+        if (lower.equals("week")) return "1w";
+        if (lower.equals("month")) return "1M";
+        return interval;
     }
 }
