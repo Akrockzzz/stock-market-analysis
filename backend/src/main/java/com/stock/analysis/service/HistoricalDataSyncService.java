@@ -35,55 +35,52 @@ public class HistoricalDataSyncService {
         List<Candle> savedCandles = new ArrayList<>();
         String accessToken = webSocketStreamer.getAccessToken();
 
-        if (accessToken == null || accessToken.isBlank()) {
-            log.warn("Cannot fetch Upstox historical candles for {}: Upstox Access Token is missing.", symbol);
-            return savedCandles;
-        }
+        if (accessToken != null && !accessToken.isBlank()) {
+            try {
+                String url = String.format("%s/historical-candle/%s/%s/%s/%s",
+                        baseUrl, instrumentKey, interval,
+                        toDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                        fromDate.format(DateTimeFormatter.ISO_LOCAL_DATE));
 
-        try {
-            String url = String.format("%s/historical-candle/%s/%s/%s/%s",
-                    baseUrl, instrumentKey, interval,
-                    toDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                    fromDate.format(DateTimeFormatter.ISO_LOCAL_DATE));
+                HttpHeaders headers = new HttpHeaders();
+                headers.setBearerAuth(accessToken);
+                headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+                HttpEntity<Void> requestEntity = new HttpEntity<>(headers);
 
-            HttpHeaders headers = new HttpHeaders();
-            headers.setBearerAuth(accessToken);
-            headers.setAccept(List.of(MediaType.APPLICATION_JSON));
-            HttpEntity<Void> requestEntity = new HttpEntity<>(headers);
+                ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, requestEntity, String.class);
 
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, requestEntity, String.class);
+                if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                    JsonNode root = objectMapper.readTree(response.getBody());
+                    JsonNode candlesNode = root.path("data").path("candles");
 
-            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                JsonNode root = objectMapper.readTree(response.getBody());
-                JsonNode candlesNode = root.path("data").path("candles");
+                    if (candlesNode.isArray()) {
+                        for (JsonNode cNode : candlesNode) {
+                            String tsStr = cNode.get(0).asText();
+                            Instant ts = Instant.parse(tsStr);
 
-                if (candlesNode.isArray()) {
-                    for (JsonNode cNode : candlesNode) {
-                        String tsStr = cNode.get(0).asText();
-                        Instant ts = Instant.parse(tsStr);
+                            Candle candle = Candle.builder()
+                                    .instrumentKey(instrumentKey)
+                                    .symbol(symbol.toUpperCase())
+                                    .intervalName(interval)
+                                    .timestamp(ts)
+                                    .open(cNode.get(1).asDouble())
+                                    .high(cNode.get(2).asDouble())
+                                    .low(cNode.get(3).asDouble())
+                                    .close(cNode.get(4).asDouble())
+                                    .volume(cNode.get(5).asLong())
+                                    .openInterest(cNode.size() > 6 ? cNode.get(6).asLong() : 0L)
+                                    .build();
 
-                        Candle candle = Candle.builder()
-                                .instrumentKey(instrumentKey)
-                                .symbol(symbol.toUpperCase())
-                                .intervalName(interval)
-                                .timestamp(ts)
-                                .open(cNode.get(1).asDouble())
-                                .high(cNode.get(2).asDouble())
-                                .low(cNode.get(3).asDouble())
-                                .close(cNode.get(4).asDouble())
-                                .volume(cNode.get(5).asLong())
-                                .openInterest(cNode.size() > 6 ? cNode.get(6).asLong() : 0L)
-                                .build();
-
-                        savedCandles.add(candle);
-                    }
-                    if (!savedCandles.isEmpty()) {
-                        candleRepository.saveAll(savedCandles);
+                            savedCandles.add(candle);
+                        }
+                        if (!savedCandles.isEmpty()) {
+                            candleRepository.saveAll(savedCandles);
+                        }
                     }
                 }
+            } catch (Exception e) {
+                log.error("Failed to fetch Upstox historical candles for symbol: " + symbol, e);
             }
-        } catch (Exception e) {
-            log.error("Failed to fetch Upstox historical candles for symbol: " + symbol, e);
         }
 
         if (savedCandles.isEmpty()) {
@@ -99,14 +96,14 @@ public class HistoricalDataSyncService {
     private List<Candle> generateFallbackCandles(String symbol, String instrumentKey, LocalDate fromDate, LocalDate toDate) {
         List<Candle> candles = new ArrayList<>();
         double basePrice = getBasePriceForSymbol(symbol);
-        double currentPrice = basePrice * 0.90; // Start 10% below current price 90 days ago
+        double currentPrice = basePrice * 0.90;
 
         LocalDate date = fromDate;
         java.util.Random random = new java.util.Random(symbol.hashCode());
 
         while (!date.isAfter(toDate)) {
             if (date.getDayOfWeek() != java.time.DayOfWeek.SATURDAY && date.getDayOfWeek() != java.time.DayOfWeek.SUNDAY) {
-                double changePct = (random.nextDouble() - 0.48) * 0.035; // Slight upward trend
+                double changePct = (random.nextDouble() - 0.48) * 0.035;
                 double open = currentPrice;
                 double close = Math.round(open * (1 + changePct) * 100.0) / 100.0;
                 double high = Math.round(Math.max(open, close) * (1 + random.nextDouble() * 0.015) * 100.0) / 100.0;

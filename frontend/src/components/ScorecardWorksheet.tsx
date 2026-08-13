@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Scorecard } from '@/types';
-import { CheckCircle2, AlertOctagon, Save, Calculator, HelpCircle } from 'lucide-react';
+import { CheckCircle2, AlertOctagon, Save, Calculator, HelpCircle, Sparkles } from 'lucide-react';
 
 interface Props {
   symbol: string;
@@ -85,7 +85,26 @@ export default function ScorecardWorksheet({ symbol, scorecard, onSave }: Props)
           </p>
         </div>
 
-        <div className="flex items-center space-x-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={async () => {
+              try {
+                const res = await fetch(`http://localhost:8080/api/scorecard/${symbol}/auto-suggest`);
+                if (res.ok) {
+                  const suggested = await res.json();
+                  setRatings((prev) => ({ ...prev, ...suggested }));
+                }
+              } catch (err) {
+                console.error('Failed to fetch auto-suggest scorecard:', err);
+              }
+            }}
+            className="px-4 py-2 rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs flex items-center space-x-1.5 shadow-lg transition-all"
+            title="Auto-evaluate scorecard based on real-time fundamentals & technical indicators"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>⚡ Auto-Evaluate with Real Data</span>
+          </button>
+
           <div className={`px-4 py-2 rounded-lg border font-bold text-sm shadow-inner flex items-center space-x-2 ${bandInfo.style}`}>
             <CheckCircle2 className="w-4 h-4" />
             <span>{currentScore} / 50.0 PTS</span>

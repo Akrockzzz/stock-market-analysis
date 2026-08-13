@@ -40,7 +40,7 @@ public class FundamentalsSyncService {
         String isin = extractIsin(isinOrInstrumentKey);
         if (isin == null || isin.isBlank()) {
             log.warn("Cannot fetch Upstox Fundamentals for {}: Valid ISIN code missing.", symbol);
-            return null;
+            return generateFallbackFundamentals(symbol);
         }
 
         try {

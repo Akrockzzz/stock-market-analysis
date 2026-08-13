@@ -82,63 +82,39 @@ export default function Dashboard() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Fetch backend market data for selected symbol
+  // Fetch backend market data in fast parallel calls
   const loadSymbolData = async (sym: string) => {
     const upperSym = sym.toUpperCase();
     setLoading(true);
+
     try {
-      // 1. Fetch Technicals & Candles
-      const techRes = await fetch(`http://localhost:8080/api/analysis/technicals/${upperSym}`);
-      if (techRes.ok) {
-        const techData = await techRes.json();
-        setTechnicals(techData);
-      } else {
-        setTechnicals(null);
-      }
+      const [techRes, candleRes, optRes, fundRes, scoreRes, statusRes] = await Promise.allSettled([
+        fetch(`http://localhost:8080/api/analysis/technicals/${upperSym}`),
+        fetch(`http://localhost:8080/api/market/candles/${upperSym}`),
+        fetch(`http://localhost:8080/api/analysis/option-chain/${upperSym}`),
+        fetch(`http://localhost:8080/api/fundamentals/${upperSym}`),
+        fetch(`http://localhost:8080/api/scorecard/${upperSym}`),
+        fetch(`http://localhost:8080/api/market/status`),
+      ]);
 
-      const candleRes = await fetch(`http://localhost:8080/api/market/candles/${upperSym}`);
-      if (candleRes.ok) {
-        const candleData = await candleRes.json();
-        setCandles(candleData);
-      } else {
-        setCandles([]);
-      }
+      if (techRes.status === 'fulfilled' && techRes.value.ok) setTechnicals(await techRes.value.json());
+      else setTechnicals(null);
 
-      // 2. Fetch Option Chain
-      const optRes = await fetch(`http://localhost:8080/api/analysis/option-chain/${upperSym}`);
-      if (optRes.ok) {
-        const optData = await optRes.json();
-        setOptionChain(optData);
-      } else {
-        setOptionChain(null);
-      }
+      if (candleRes.status === 'fulfilled' && candleRes.value.ok) setCandles(await candleRes.value.json());
+      else setCandles([]);
 
-      // 3. Fetch Fundamentals
-      const fundRes = await fetch(`http://localhost:8080/api/fundamentals/${upperSym}`);
-      if (fundRes.ok) {
-        const fundData = await fundRes.json();
-        setFundamentals(fundData);
-      } else {
-        setFundamentals(null);
-      }
+      if (optRes.status === 'fulfilled' && optRes.value.ok) setOptionChain(await optRes.value.json());
+      else setOptionChain(null);
 
-      // 4. Fetch Scorecard
-      const scoreRes = await fetch(`http://localhost:8080/api/scorecard/${upperSym}`);
-      if (scoreRes.ok) {
-        const scoreData = await scoreRes.json();
-        setScorecard(scoreData);
-      } else {
-        setScorecard(null);
-      }
+      if (fundRes.status === 'fulfilled' && fundRes.value.ok) setFundamentals(await fundRes.value.json());
+      else setFundamentals(null);
 
-      // 5. Fetch Connection Status
-      const statusRes = await fetch(`http://localhost:8080/api/market/status`);
-      if (statusRes.ok) {
-        const statusData = await statusRes.json();
-        setStatus(statusData);
-      }
+      if (scoreRes.status === 'fulfilled' && scoreRes.value.ok) setScorecard(await scoreRes.value.json());
+      else setScorecard(null);
+
+      if (statusRes.status === 'fulfilled' && statusRes.value.ok) setStatus(await statusRes.value.json());
     } catch (err) {
-      console.error('Error fetching backend data:', err);
+      console.error('Error loading market data:', err);
     } finally {
       setLoading(false);
     }

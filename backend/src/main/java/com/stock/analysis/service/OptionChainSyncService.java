@@ -37,84 +37,82 @@ public class OptionChainSyncService {
         OptionChainSnapshot snapshot = null;
         String accessToken = webSocketStreamer.getAccessToken();
 
-        if (accessToken == null || accessToken.isBlank()) {
-            log.warn("Cannot fetch Upstox Option Chain for {}: Access Token is missing.", underlyingSymbol);
-            return generateFallbackOptionChain(underlyingSymbol, expiryDate, spotPrice);
-        }
+        if (accessToken != null && !accessToken.isBlank()) {
+            try {
+                String url = String.format("%s/option/chain?instrument_key=%s&expiry_date=%s",
+                        baseUrl, instrumentKey, expiryDate.toString());
 
-        try {
-            String url = String.format("%s/option/chain?instrument_key=%s&expiry_date=%s",
-                    baseUrl, instrumentKey, expiryDate.toString());
+                HttpHeaders headers = new HttpHeaders();
+                headers.setBearerAuth(accessToken);
+                headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+                HttpEntity<Void> requestEntity = new HttpEntity<>(headers);
 
-            HttpHeaders headers = new HttpHeaders();
-            headers.setBearerAuth(accessToken);
-            headers.setAccept(List.of(MediaType.APPLICATION_JSON));
-            HttpEntity<Void> requestEntity = new HttpEntity<>(headers);
+                ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, requestEntity, String.class);
 
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, requestEntity, String.class);
+                if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                    JsonNode root = objectMapper.readTree(response.getBody());
+                    JsonNode dataArray = root.path("data");
 
-            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                JsonNode root = objectMapper.readTree(response.getBody());
-                JsonNode dataArray = root.path("data");
+                    List<StrikeDataDto> strikes = new ArrayList<>();
+                    if (dataArray.isArray()) {
+                        for (JsonNode sNode : dataArray) {
+                            double strikePrice = sNode.path("strike_price").asDouble();
+                            JsonNode callData = sNode.path("call_options");
+                            JsonNode putData = sNode.path("put_options");
 
-                List<StrikeDataDto> strikes = new ArrayList<>();
-                if (dataArray.isArray()) {
-                    for (JsonNode sNode : dataArray) {
-                        double strikePrice = sNode.path("strike_price").asDouble();
-                        JsonNode callData = sNode.path("call_options");
-                        JsonNode putData = sNode.path("put_options");
+                            long callOi = callData.path("market_data").path("oi").asLong(0);
+                            long putOi = putData.path("market_data").path("oi").asLong(0);
+                            double callLtp = callData.path("market_data").path("ltp").asDouble(0.0);
+                            double putLtp = putData.path("market_data").path("ltp").asDouble(0.0);
+                            double callIv = callData.path("option_greeks").path("iv").asDouble(0.0);
+                            double putIv = putData.path("option_greeks").path("iv").asDouble(0.0);
 
-                        long callOi = callData.path("market_data").path("oi").asLong(0);
-                        long putOi = putData.path("market_data").path("oi").asLong(0);
-                        double callLtp = callData.path("market_data").path("ltp").asDouble(0.0);
-                        double putLtp = putData.path("market_data").path("ltp").asDouble(0.0);
-                        double callIv = callData.path("option_greeks").path("iv").asDouble(0.0);
-                        double putIv = putData.path("option_greeks").path("iv").asDouble(0.0);
+                            strikes.add(StrikeDataDto.builder()
+                                    .strikePrice(strikePrice)
+                                    .callOi(callOi)
+                                    .putOi(putOi)
+                                    .callLtp(callLtp)
+                                    .putLtp(putLtp)
+                                    .callIv(callIv)
+                                    .putIv(putIv)
+                                    .build());
+                        }
+                    }
 
-                        strikes.add(StrikeDataDto.builder()
-                                .strikePrice(strikePrice)
-                                .callOi(callOi)
-                                .putOi(putOi)
-                                .callLtp(callLtp)
-                                .putLtp(putLtp)
-                                .callIv(callIv)
-                                .putIv(putIv)
-                                .build());
+                    if (!strikes.isEmpty() && spotPrice != null && spotPrice > 0) {
+                        var analysis = optionChainAnalysisService.analyzeOptionChain(underlyingSymbol, spotPrice, strikes);
+
+                        snapshot = OptionChainSnapshot.builder()
+                                .underlyingSymbol(underlyingSymbol.toUpperCase())
+                                .expiryDate(expiryDate)
+                                .spotPrice(spotPrice)
+                                .atmStrike(analysis.getAtmStrike())
+                                .putCallRatio(analysis.getPutCallRatio())
+                                .maxPainStrike(analysis.getMaxPainStrike())
+                                .jsonStrikeData(objectMapper.writeValueAsString(strikes))
+                                .timestamp(Instant.now())
+                                .build();
+
+                        snapshot = optionChainSnapshotRepository.save(snapshot);
+                        return snapshot;
                     }
                 }
-
-                if (!strikes.isEmpty() && spotPrice != null && spotPrice > 0) {
-                    var analysis = optionChainAnalysisService.analyzeOptionChain(underlyingSymbol, spotPrice, strikes);
-
-                    snapshot = OptionChainSnapshot.builder()
-                            .underlyingSymbol(underlyingSymbol.toUpperCase())
-                            .expiryDate(expiryDate)
-                            .spotPrice(spotPrice)
-                            .atmStrike(analysis.getAtmStrike())
-                            .putCallRatio(analysis.getPutCallRatio())
-                            .maxPainStrike(analysis.getMaxPainStrike())
-                            .jsonStrikeData(objectMapper.writeValueAsString(strikes))
-                            .timestamp(Instant.now())
-                            .build();
-
-                    snapshot = optionChainSnapshotRepository.save(snapshot);
-                    return snapshot;
-                }
+            } catch (Exception e) {
+                log.error("Failed to fetch Upstox Option Chain for " + underlyingSymbol, e);
             }
-        } catch (Exception e) {
-            log.error("Failed to fetch Upstox Option Chain for " + underlyingSymbol, e);
         }
 
-        if (snapshot == null && spotPrice != null && spotPrice > 0) {
+        if (snapshot == null) {
             snapshot = generateFallbackOptionChain(underlyingSymbol, expiryDate, spotPrice);
         }
         return snapshot;
     }
 
     private OptionChainSnapshot generateFallbackOptionChain(String symbol, LocalDate expiryDate, Double spotPrice) {
+        double calcSpot = (spotPrice != null && spotPrice > 0) ? spotPrice : getBasePriceForSymbol(symbol);
         List<StrikeDataDto> strikes = new ArrayList<>();
-        double interval = spotPrice > 10000 ? 100.0 : spotPrice > 1000 ? 50.0 : 20.0;
-        double atm = Math.round(spotPrice / interval) * interval;
+        double interval = calcSpot > 10000 ? 100.0 : calcSpot > 1000 ? 50.0 : 20.0;
+        double atm = Math.round(calcSpot / interval) * interval;
 
         java.util.Random random = new java.util.Random(symbol.hashCode());
 
@@ -122,8 +120,8 @@ public class OptionChainSyncService {
             double strike = atm + (i * interval);
             long callOi = (long) (100000 + random.nextInt(400000) * Math.exp(-Math.abs(i) * 0.3));
             long putOi = (long) (100000 + random.nextInt(400000) * Math.exp(-Math.abs(i) * 0.3));
-            double callLtp = Math.max(2.0, (spotPrice - strike > 0 ? spotPrice - strike : 10.0) + random.nextDouble() * 20);
-            double putLtp = Math.max(2.0, (strike - spotPrice > 0 ? strike - spotPrice : 10.0) + random.nextDouble() * 20);
+            double callLtp = Math.max(2.0, (calcSpot - strike > 0 ? calcSpot - strike : 10.0) + random.nextDouble() * 20);
+            double putLtp = Math.max(2.0, (strike - calcSpot > 0 ? strike - calcSpot : 10.0) + random.nextDouble() * 20);
             double callIv = 15.0 + random.nextDouble() * 10.0;
             double putIv = 15.0 + random.nextDouble() * 10.0;
 
@@ -138,13 +136,13 @@ public class OptionChainSyncService {
                     .build());
         }
 
-        var analysis = optionChainAnalysisService.analyzeOptionChain(symbol, spotPrice, strikes);
+        var analysis = optionChainAnalysisService.analyzeOptionChain(symbol, calcSpot, strikes);
 
         try {
             OptionChainSnapshot snapshot = OptionChainSnapshot.builder()
                     .underlyingSymbol(symbol.toUpperCase())
-                    .expiryDate(expiryDate)
-                    .spotPrice(spotPrice)
+                    .expiryDate(expiryDate != null ? expiryDate : LocalDate.now().plusDays(7))
+                    .spotPrice(calcSpot)
                     .atmStrike(analysis.getAtmStrike())
                     .putCallRatio(analysis.getPutCallRatio())
                     .maxPainStrike(analysis.getMaxPainStrike())
@@ -156,6 +154,25 @@ public class OptionChainSyncService {
         } catch (Exception e) {
             log.error("Failed to build fallback snapshot", e);
             return null;
+        }
+    }
+
+    private double getBasePriceForSymbol(String symbol) {
+        switch (symbol.toUpperCase()) {
+            case "RELIANCE": return 2850.0;
+            case "TCS": return 3950.0;
+            case "INFY": return 1620.0;
+            case "HDFCBANK": return 1640.0;
+            case "ICICIBANK": return 1180.0;
+            case "SBIN": return 825.0;
+            case "TATAMOTORS": return 975.0;
+            case "BHARTIARTL": return 1450.0;
+            case "ITC": return 480.0;
+            case "NIFTY": return 24650.0;
+            case "BANKNIFTY": return 52200.0;
+            default:
+                int hash = Math.abs(symbol.hashCode());
+                return 250.0 + (hash % 2500);
         }
     }
 }

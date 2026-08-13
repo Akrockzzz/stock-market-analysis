@@ -23,6 +23,8 @@ public class MarketDataController {
     private final SpotPriceCacheService spotPriceCacheService;
     private final CandleRepository candleRepository;
 
+    private final com.stock.analysis.service.HistoricalDataSyncService historicalDataSyncService;
+
     @GetMapping("/status")
     public ResponseEntity<ConnectionStatusDto> getStatus() {
         return ResponseEntity.ok(webSocketStreamer.getCurrentStatus());
@@ -39,7 +41,13 @@ public class MarketDataController {
     public ResponseEntity<List<Candle>> getCandles(
             @PathVariable String symbol,
             @RequestParam(defaultValue = "1d") String interval) {
-        List<Candle> candles = candleRepository.findRecentCandles(symbol, interval, PageRequest.of(0, 100));
+        String upperSymbol = symbol.toUpperCase();
+        List<Candle> candles = candleRepository.findRecentCandles(upperSymbol, interval, PageRequest.of(0, 100));
+
+        if (candles.isEmpty()) {
+            candles = historicalDataSyncService.fetchAndStoreHistoricalCandles(upperSymbol, "NSE_EQ|" + upperSymbol, interval, java.time.LocalDate.now().minusDays(90), java.time.LocalDate.now());
+        }
+
         return ResponseEntity.ok(candles);
     }
 }
