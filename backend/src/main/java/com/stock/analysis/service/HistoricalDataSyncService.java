@@ -8,9 +8,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.Instant;
@@ -18,6 +20,8 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Service
@@ -26,19 +30,48 @@ public class HistoricalDataSyncService {
 
     private final CandleRepository candleRepository;
     private final UpstoxWebSocketStreamer webSocketStreamer;
+    private final PlatformTransactionManager transactionManager;
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    private final ConcurrentHashMap<String, CompletableFuture<List<Candle>>> inFlightSyncs = new ConcurrentHashMap<>();
 
     @Value("${upstox.api.base-url:https://api.upstox.com/v2}")
     private String baseUrl;
 
-    @Transactional
     public List<Candle> fetchAndStoreHistoricalCandles(String symbol, String instrumentKey, String interval, LocalDate fromDate, LocalDate toDate) {
+        String upperSymbol = symbol.toUpperCase();
+        String dbInterval = mapToDbInterval(interval);
+        String syncKey = upperSymbol + "_" + dbInterval;
+
+        // In-flight deduplication (single-flight): coalesce concurrent requests for same symbol and interval
+        CompletableFuture<List<Candle>> future = inFlightSyncs.computeIfAbsent(syncKey, k -> {
+            CompletableFuture<List<Candle>> cf = new CompletableFuture<>();
+            try {
+                List<Candle> result = executeFetchAndStore(upperSymbol, instrumentKey, interval, dbInterval, fromDate, toDate);
+                cf.complete(result);
+            } catch (Throwable t) {
+                log.error("Exception during historical candle sync for " + upperSymbol, t);
+                cf.completeExceptionally(t);
+            }
+            return cf;
+        });
+
+        try {
+            return future.join();
+        } catch (Exception e) {
+            log.warn("Historical candle sync join exception for {}: {}. Returning cached DB candles.", upperSymbol, e.getMessage());
+            return candleRepository.findRecentCandles(upperSymbol, dbInterval, PageRequest.of(0, 100));
+        } finally {
+            inFlightSyncs.remove(syncKey);
+        }
+    }
+
+    private List<Candle> executeFetchAndStore(String symbol, String instrumentKey, String interval, String dbInterval, LocalDate fromDate, LocalDate toDate) {
         List<Candle> savedCandles = new ArrayList<>();
         String accessToken = webSocketStreamer.getAccessToken();
 
         String upstoxInterval = mapToUpstoxInterval(interval);
-        String dbInterval = mapToDbInterval(interval);
 
         if (accessToken != null && !accessToken.isBlank()) {
             try {
@@ -65,7 +98,7 @@ public class HistoricalDataSyncService {
 
                             Candle candle = Candle.builder()
                                     .instrumentKey(instrumentKey)
-                                    .symbol(symbol.toUpperCase())
+                                    .symbol(symbol)
                                     .intervalName(dbInterval)
                                     .timestamp(ts)
                                     .open(cNode.get(1).asDouble())
@@ -82,11 +115,14 @@ public class HistoricalDataSyncService {
                             Instant minTs = savedCandles.stream().map(Candle::getTimestamp).min(Instant::compareTo).orElse(null);
                             Instant maxTs = savedCandles.stream().map(Candle::getTimestamp).max(Instant::compareTo).orElse(null);
 
-                            if (minTs != null && maxTs != null) {
-                                candleRepository.deleteBySymbolAndIntervalNameAndTimestampBetween(symbol.toUpperCase(), dbInterval, minTs, maxTs);
-                            }
+                            TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+                            txTemplate.executeWithoutResult(status -> {
+                                if (minTs != null && maxTs != null) {
+                                    candleRepository.deleteBySymbolAndIntervalNameAndTimestampBetween(symbol, dbInterval, minTs, maxTs);
+                                }
+                                candleRepository.saveAll(savedCandles);
+                            });
 
-                            candleRepository.saveAll(savedCandles);
                             log.info("Fetched, deduplicated and saved {} historical candles for {}", savedCandles.size(), symbol);
                         }
                     }
