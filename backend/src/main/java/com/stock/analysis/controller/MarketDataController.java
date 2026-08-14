@@ -16,9 +16,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/market")
@@ -62,8 +61,18 @@ public class MarketDataController {
             }
         }
 
-        // Reverse list to deliver ascending chronological order (oldest -> newest) for TradingView Lightweight Charts
-        Collections.reverse(candles);
-        return ResponseEntity.ok(candles);
+        // Deduplicate by timestamp and reverse to deliver ascending chronological order (oldest -> newest) for TradingView
+        List<Candle> distinctCandles = new ArrayList<>(
+                candles.stream()
+                        .collect(Collectors.toMap(
+                                Candle::getTimestamp,
+                                c -> c,
+                                (existing, replacement) -> existing,
+                                LinkedHashMap::new
+                        ))
+                        .values()
+        );
+        Collections.reverse(distinctCandles);
+        return ResponseEntity.ok(distinctCandles);
     }
 }

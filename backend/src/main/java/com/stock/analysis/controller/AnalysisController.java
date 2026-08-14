@@ -66,8 +66,18 @@ public class AnalysisController {
                     "No historical candle data available in database or Upstox REST API.");
         }
 
-        java.util.Collections.reverse(candles);
-        TechnicalAnalysisDto dto = technicalAnalysisService.calculateTechnicals(upperSymbol, candles);
+        List<Candle> distinctCandles = new java.util.ArrayList<>(
+                candles.stream()
+                        .collect(java.util.stream.Collectors.toMap(
+                                Candle::getTimestamp,
+                                c -> c,
+                                (existing, replacement) -> existing,
+                                java.util.LinkedHashMap::new
+                        ))
+                        .values()
+        );
+        java.util.Collections.reverse(distinctCandles);
+        TechnicalAnalysisDto dto = technicalAnalysisService.calculateTechnicals(upperSymbol, distinctCandles);
         return ResponseEntity.ok(dto);
     }
 

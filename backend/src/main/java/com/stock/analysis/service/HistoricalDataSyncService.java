@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.Instant;
@@ -31,6 +32,7 @@ public class HistoricalDataSyncService {
     @Value("${upstox.api.base-url:https://api.upstox.com/v2}")
     private String baseUrl;
 
+    @Transactional
     public List<Candle> fetchAndStoreHistoricalCandles(String symbol, String instrumentKey, String interval, LocalDate fromDate, LocalDate toDate) {
         List<Candle> savedCandles = new ArrayList<>();
         String accessToken = webSocketStreamer.getAccessToken();
@@ -77,8 +79,15 @@ public class HistoricalDataSyncService {
                             savedCandles.add(candle);
                         }
                         if (!savedCandles.isEmpty()) {
+                            Instant minTs = savedCandles.stream().map(Candle::getTimestamp).min(Instant::compareTo).orElse(null);
+                            Instant maxTs = savedCandles.stream().map(Candle::getTimestamp).max(Instant::compareTo).orElse(null);
+
+                            if (minTs != null && maxTs != null) {
+                                candleRepository.deleteBySymbolAndIntervalNameAndTimestampBetween(symbol.toUpperCase(), dbInterval, minTs, maxTs);
+                            }
+
                             candleRepository.saveAll(savedCandles);
-                            log.info("Fetched and saved {} historical candles for {}", savedCandles.size(), symbol);
+                            log.info("Fetched, deduplicated and saved {} historical candles for {}", savedCandles.size(), symbol);
                         }
                     }
                 }
