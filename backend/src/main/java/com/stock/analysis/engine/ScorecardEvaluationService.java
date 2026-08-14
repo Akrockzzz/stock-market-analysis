@@ -22,17 +22,21 @@ public class ScorecardEvaluationService {
     public StockScorecard evaluateScorecard(String symbol, Map<ScoringCategory, Double> categoryRatings, String thesis, String exitRules, String notes) {
         double totalScore = 0.0;
 
-        Map<String, Double> categoryScoresMap = new HashMap<>();
+        // Store raw 0-5 RATINGS (not weighted scores) so the frontend worksheet can reload slider values faithfully.
+        // Weighted computation is done only for totalScore — never persisted to categoryScoresJson.
+        Map<String, Double> rawRatingsMap = new HashMap<>();
 
         double maxWeightsSum = 0.0;
         for (ScoringCategory category : ScoringCategory.values()) {
-            Double rating = categoryRatings != null ? categoryRatings.get(category) : 0.0;
-            if (rating == null) rating = 0.0;
-            // Rating 0.0 to 5.0 scaled by category weight
+            Double rating = categoryRatings != null ? categoryRatings.get(category) : 3.0;
+            if (rating == null) rating = 3.0;
+            // Clamp to valid 0.0 – 5.0 range
+            rating = Math.max(0.0, Math.min(5.0, rating));
             double categoryScore = (rating / 5.0) * category.getWeight();
             totalScore += categoryScore;
             maxWeightsSum += category.getWeight();
-            categoryScoresMap.put(category.name(), Math.round(categoryScore * 100.0) / 100.0);
+            // Store raw rating (not weighted score) so frontend sliders are correct on reload
+            rawRatingsMap.put(category.name(), Math.round(rating * 10.0) / 10.0);
         }
 
         // Normalize total score to scale of 50.0
@@ -42,9 +46,9 @@ public class ScorecardEvaluationService {
 
         String jsonScores;
         try {
-            jsonScores = objectMapper.writeValueAsString(categoryScoresMap);
+            jsonScores = objectMapper.writeValueAsString(rawRatingsMap);
         } catch (Exception e) {
-            log.error("Failed to serialize category scores map", e);
+            log.error("Failed to serialize raw category ratings map", e);
             jsonScores = "{}";
         }
 

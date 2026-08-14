@@ -8,6 +8,8 @@ import FundamentalsPanel from '@/components/FundamentalsPanel';
 import ScorecardWorksheet from '@/components/ScorecardWorksheet';
 import { ConnectionStatus, Candle, Technicals, OptionChainData, Fundamentals, Scorecard, Tick } from '@/types';
 import { LineChart, PieChart, Calculator, Layers, Search, RefreshCw, Plus, X, Check, TrendingUp } from 'lucide-react';
+import { Client as StompClient } from '@stomp/stompjs';
+import SockJS from 'sockjs-client';
 
 interface SearchResult {
   symbol: string;
@@ -56,12 +58,7 @@ export default function Dashboard() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
 
-  const [status, setStatus] = useState<ConnectionStatus | null>({
-    source: 'UPSTOX_V3_FEED',
-    state: 'HISTORICAL_ONLY',
-    message: 'Backend API online. Real-Time Market Data Stream Active.',
-    lastHeartbeat: new Date().toISOString(),
-  });
+  const [status, setStatus] = useState<ConnectionStatus | null>(null);
 
   const [candles, setCandles] = useState<Candle[]>([]);
   const [technicals, setTechnicals] = useState<Technicals | null>(null);
@@ -80,6 +77,38 @@ export default function Dashboard() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // STOMP WebSocket: subscribe to real-time connection status & live tick updates from backend
+  useEffect(() => {
+    let stompClient: StompClient | null = null;
+    try {
+      stompClient = new StompClient({
+        webSocketFactory: () => new SockJS('http://localhost:8080/ws'),
+        reconnectDelay: 5000,
+        onConnect: () => {
+          // Subscribe to live connection state changes
+          stompClient?.subscribe('/topic/status', (msg) => {
+            try {
+              const statusUpdate: ConnectionStatus = JSON.parse(msg.body);
+              setStatus(statusUpdate);
+            } catch (e) {
+              console.error('Failed to parse /topic/status message:', e);
+            }
+          });
+        },
+        onStompError: (frame) => {
+          console.warn('STOMP error:', frame.headers['message']);
+        },
+      });
+      stompClient.activate();
+    } catch (err) {
+      console.error('Failed to initialize STOMP WebSocket client:', err);
+    }
+    return () => {
+      stompClient?.deactivate();
+    };
+  }, []);
+
 
   // Real-Time Stock Search Query API
   useEffect(() => {

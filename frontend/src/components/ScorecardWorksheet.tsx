@@ -47,13 +47,22 @@ export default function ScorecardWorksheet({ symbol, scorecard, onSave }: Props)
   const [notes, setNotes] = useState(scorecard?.userNotes || '');
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
 
-  // Auto-fetch suggested ratings when symbol changes or when no scorecard exists
+  // Reset ratings to neutral baseline whenever symbol changes, then load saved or auto-suggested ratings
   useEffect(() => {
+    // First reset to neutral 3.0 so we never show stale data from previous symbol
+    const defaultRatings: Record<string, number> = {};
+    CATEGORIES.forEach((c) => { defaultRatings[c.id] = 3.0; });
+    setRatings(defaultRatings);
+    setThesis('');
+    setExitRules('');
+    setNotes('');
+
     if (scorecard && scorecard.categoryScoresJson) {
       try {
         const parsed = typeof scorecard.categoryScoresJson === 'string'
           ? JSON.parse(scorecard.categoryScoresJson)
           : scorecard.categoryScoresJson;
+        // Merge parsed values — expect raw 0-5 ratings keyed by ScoringCategory name
         setRatings((prev) => ({ ...prev, ...parsed }));
         if (scorecard.investmentThesis) setThesis(scorecard.investmentThesis);
         if (scorecard.exitCriteria) setExitRules(scorecard.exitCriteria);
@@ -69,11 +78,8 @@ export default function ScorecardWorksheet({ symbol, scorecard, onSave }: Props)
           const res = await fetch(`http://localhost:8080/api/scorecard/${encodeURIComponent(symbol.toUpperCase())}/auto-suggest`);
           if (res.ok) {
             const data = await res.json();
-            if (data.categoryRatings) {
+            if (data.categoryRatings && typeof data.categoryRatings === 'object') {
               setRatings((prev) => ({ ...prev, ...data.categoryRatings }));
-            } else if (data.categoryScoresJson) {
-              const parsed = typeof data.categoryScoresJson === 'string' ? JSON.parse(data.categoryScoresJson) : data.categoryScoresJson;
-              setRatings((prev) => ({ ...prev, ...parsed }));
             }
             if (data.investmentThesis) setThesis(data.investmentThesis);
             if (data.exitCriteria) setExitRules(data.exitCriteria);
@@ -120,11 +126,8 @@ export default function ScorecardWorksheet({ symbol, scorecard, onSave }: Props)
       const res = await fetch(`http://localhost:8080/api/scorecard/${encodeURIComponent(symbol.toUpperCase())}/auto-suggest`);
       if (res.ok) {
         const data = await res.json();
-        if (data.categoryRatings) {
+        if (data.categoryRatings && typeof data.categoryRatings === 'object') {
           setRatings((prev) => ({ ...prev, ...data.categoryRatings }));
-        } else if (data.categoryScoresJson) {
-          const parsed = typeof data.categoryScoresJson === 'string' ? JSON.parse(data.categoryScoresJson) : data.categoryScoresJson;
-          setRatings((prev) => ({ ...prev, ...parsed }));
         }
         if (data.investmentThesis) setThesis(data.investmentThesis);
         if (data.exitCriteria) setExitRules(data.exitCriteria);

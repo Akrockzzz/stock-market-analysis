@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { ConnectionStatus } from '@/types';
-import { Wifi, WifiOff, Clock, ShieldAlert } from 'lucide-react';
+import { Wifi, WifiOff, Clock, ShieldAlert, RefreshCw } from 'lucide-react';
 
 interface Props {
   status: ConnectionStatus | null;
@@ -13,6 +13,14 @@ export default function ConnectionStateBanner({ status }: Props) {
   const message = status?.message || 'Disconnected from backend websocket';
 
   const getBadgeStyle = () => {
+    if (!status) {
+      return {
+        container: 'bg-slate-900/60 border-slate-700/40 text-slate-400',
+        icon: <RefreshCw className="w-4 h-4 text-slate-400 animate-spin" />,
+        title: 'CONNECTING...',
+        color: 'bg-slate-600',
+      };
+    }
     switch (state) {
       case 'LIVE':
         return {
@@ -25,7 +33,7 @@ export default function ConnectionStateBanner({ status }: Props) {
         return {
           container: 'bg-amber-950/60 border-amber-500/40 text-amber-300',
           icon: <Clock className="w-4 h-4 text-amber-400" />,
-          title: 'HISTORICAL / EOD MODE',
+          title: 'MARKET CLOSED — EOD / HISTORICAL MODE',
           color: 'bg-amber-500',
         };
       case 'NOT_CONNECTED':
