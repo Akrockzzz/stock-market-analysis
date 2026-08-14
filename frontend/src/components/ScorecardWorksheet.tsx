@@ -183,6 +183,15 @@ export default function ScorecardWorksheet({ symbol, scorecard, onSave }: Props)
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         {CATEGORIES.map((cat) => {
           const rating = ratings[cat.id] ?? 3.0;
+          const contribution = Math.round((rating / 5.0) * cat.weight * 100) / 100;
+          const ratingColor =
+            rating >= 4.0 ? 'text-emerald-400 bg-emerald-950 border-emerald-800' :
+            rating >= 2.5 ? 'text-amber-400 bg-amber-950 border-amber-800' :
+                            'text-rose-400 bg-rose-950 border-rose-800';
+          const trackColor =
+            rating >= 4.0 ? 'accent-emerald-500' :
+            rating >= 2.5 ? 'accent-amber-500' :
+                            'accent-rose-500';
           return (
             <div
               key={cat.id}
@@ -190,9 +199,14 @@ export default function ScorecardWorksheet({ symbol, scorecard, onSave }: Props)
             >
               <div className="flex items-start justify-between gap-2 mb-2">
                 <span className="text-xs font-semibold text-slate-200 leading-snug">{cat.name}</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800 whitespace-nowrap">
-                  Wt: {cat.weight}
-                </span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800 whitespace-nowrap">
+                    Wt: {cat.weight}
+                  </span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold whitespace-nowrap ${ratingColor}`}>
+                    {contribution}/{cat.weight}
+                  </span>
+                </div>
               </div>
 
               <div className="flex items-center justify-between gap-3 mt-1">
@@ -203,9 +217,9 @@ export default function ScorecardWorksheet({ symbol, scorecard, onSave }: Props)
                   step="0.5"
                   value={rating}
                   onChange={(e) => handleRatingChange(cat.id, parseFloat(e.target.value))}
-                  className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                  className={`w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer ${trackColor}`}
                 />
-                <span className="text-xs font-bold text-blue-400 w-8 text-right">
+                <span className={`text-xs font-bold w-10 text-right px-1.5 py-0.5 rounded border ${ratingColor}`}>
                   {rating.toFixed(1)}/5
                 </span>
               </div>
@@ -214,11 +228,11 @@ export default function ScorecardWorksheet({ symbol, scorecard, onSave }: Props)
         })}
       </div>
 
-      {/* Thesis & Exit Rules Section */}
+      {/* Thesis, Exit Rules & Notes Section */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-800 pt-6">
         <div>
           <label className="text-xs font-bold text-slate-300 block mb-2">
-            Investment Thesis ("Why am I buying?")
+            📋 Investment Thesis ("Why am I buying?")
           </label>
           <textarea
             value={thesis}
@@ -231,13 +245,26 @@ export default function ScorecardWorksheet({ symbol, scorecard, onSave }: Props)
 
         <div>
           <label className="text-xs font-bold text-slate-300 block mb-2">
-            Exit Rules & Pre-defined Stop Loss ("What would make me sell?")
+            🚨 Exit Rules & Pre-defined Stop Loss ("What would make me sell?")
           </label>
           <textarea
             value={exitRules}
             onChange={(e) => setExitRules(e.target.value)}
             placeholder="e.g. Sell if revenue growth drops below 10% for 2 quarters or price breaks 200 EMA..."
             rows={4}
+            className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs text-slate-200 focus:border-blue-500 focus:outline-none font-mono"
+          />
+        </div>
+
+        <div className="md:col-span-2">
+          <label className="text-xs font-bold text-slate-300 block mb-2">
+            📝 Additional Notes & Observations
+          </label>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Any additional observations, risks, catalysts, or reminders about this position..."
+            rows={3}
             className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs text-slate-200 focus:border-blue-500 focus:outline-none font-mono"
           />
         </div>
