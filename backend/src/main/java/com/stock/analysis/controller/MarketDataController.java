@@ -16,6 +16,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 @RestController
@@ -47,7 +49,7 @@ public class MarketDataController {
             @PathVariable String symbol,
             @RequestParam(defaultValue = "1d") String interval) {
         String upperSymbol = symbol.toUpperCase();
-        List<Candle> candles = candleRepository.findRecentCandles(upperSymbol, interval, PageRequest.of(0, 100));
+        List<Candle> candles = new ArrayList<>(candleRepository.findRecentCandles(upperSymbol, interval, PageRequest.of(0, 100)));
 
         if (candles.isEmpty()) {
             String instrumentKey = instrumentRepository.findBySymbolAndExchange(upperSymbol, Exchange.NSE_EQ)
@@ -55,11 +57,13 @@ public class MarketDataController {
                     .orElse(null);
 
             if (instrumentKey != null) {
-                candles = historicalDataSyncService.fetchAndStoreHistoricalCandles(
-                        upperSymbol, instrumentKey, interval, LocalDate.now().minusDays(90), LocalDate.now());
+                candles = new ArrayList<>(historicalDataSyncService.fetchAndStoreHistoricalCandles(
+                        upperSymbol, instrumentKey, interval, LocalDate.now().minusDays(90), LocalDate.now()));
             }
         }
 
+        // Reverse list to deliver ascending chronological order (oldest -> newest) for TradingView Lightweight Charts
+        Collections.reverse(candles);
         return ResponseEntity.ok(candles);
     }
 }

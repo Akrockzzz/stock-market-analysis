@@ -49,14 +49,14 @@ public class AnalysisController {
     @GetMapping("/technicals/{symbol}")
     public ResponseEntity<TechnicalAnalysisDto> getTechnicals(@PathVariable String symbol) {
         String upperSymbol = symbol.toUpperCase();
-        List<Candle> candles = candleRepository.findRecentCandles(upperSymbol, "1d", PageRequest.of(0, 200));
+        List<Candle> candles = new java.util.ArrayList<>(candleRepository.findRecentCandles(upperSymbol, "1d", PageRequest.of(0, 200)));
 
         if (candles.isEmpty()) {
             instrumentRepository.findBySymbolAndExchange(upperSymbol, Exchange.NSE_EQ)
                     .ifPresent(instrument -> historicalDataSyncService.fetchAndStoreHistoricalCandles(
                             upperSymbol, instrument.getInstrumentKey(), "1d", LocalDate.now().minusYears(1), LocalDate.now()));
 
-            candles = candleRepository.findRecentCandles(upperSymbol, "1d", PageRequest.of(0, 200));
+            candles = new java.util.ArrayList<>(candleRepository.findRecentCandles(upperSymbol, "1d", PageRequest.of(0, 200)));
         }
 
         if (candles.isEmpty()) {
@@ -66,6 +66,7 @@ public class AnalysisController {
                     "No historical candle data available in database or Upstox REST API.");
         }
 
+        java.util.Collections.reverse(candles);
         TechnicalAnalysisDto dto = technicalAnalysisService.calculateTechnicals(upperSymbol, candles);
         return ResponseEntity.ok(dto);
     }
@@ -91,7 +92,7 @@ public class AnalysisController {
             }
         }
 
-        LocalDate expiryDate = expiry != null ? LocalDate.parse(expiry) : ExpiryUtil.getNextValidExpiryDate(Exchange.NSE_EQ);
+        LocalDate expiryDate = expiry != null ? LocalDate.parse(expiry) : ExpiryUtil.getNextValidExpiryDate(upperSymbol, Exchange.NSE_EQ);
 
         OptionChainSnapshot snapshot = optionChainSnapshotRepository
                 .findFirstByUnderlyingSymbolAndExpiryDateOrderByTimestampDesc(upperSymbol, expiryDate)
