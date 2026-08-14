@@ -11,6 +11,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
 
@@ -49,6 +51,17 @@ public class UpstoxWebSocketStreamer {
         this.marketHoursUtil = marketHoursUtil;
         this.messagingTemplate = messagingTemplate;
         this.subscriptionManager = subscriptionManager;
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void onApplicationReady() {
+        String token = accessToken.get();
+        if (token != null && !token.isBlank()) {
+            log.info("Upstox Access Token detected on application startup. Initiating WebSocket connection...");
+            connect();
+        } else {
+            log.info("No Upstox Access Token provided on startup. System ready in NOT_CONNECTED state.");
+        }
     }
 
     public synchronized void updateAccessToken(String newToken) {

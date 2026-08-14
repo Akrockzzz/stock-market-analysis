@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Scorecard } from '@/types';
-import { CheckCircle2, AlertOctagon, Save, Calculator, HelpCircle, Sparkles } from 'lucide-react';
+import { CheckCircle2, Save, Calculator, Sparkles } from 'lucide-react';
 
 interface Props {
   symbol: string;
@@ -38,13 +38,55 @@ const CATEGORIES = [
 export default function ScorecardWorksheet({ symbol, scorecard, onSave }: Props) {
   const initialRatings: Record<string, number> = {};
   CATEGORIES.forEach((c) => {
-    initialRatings[c.id] = 4.0; // Default rating 4/5
+    initialRatings[c.id] = 3.0; // Default baseline 3.0
   });
 
   const [ratings, setRatings] = useState<Record<string, number>>(initialRatings);
   const [thesis, setThesis] = useState(scorecard?.investmentThesis || '');
   const [exitRules, setExitRules] = useState(scorecard?.exitCriteria || '');
   const [notes, setNotes] = useState(scorecard?.userNotes || '');
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+
+  // Auto-fetch suggested ratings when symbol changes or when no scorecard exists
+  useEffect(() => {
+    if (scorecard && scorecard.categoryScoresJson) {
+      try {
+        const parsed = typeof scorecard.categoryScoresJson === 'string'
+          ? JSON.parse(scorecard.categoryScoresJson)
+          : scorecard.categoryScoresJson;
+        setRatings((prev) => ({ ...prev, ...parsed }));
+        if (scorecard.investmentThesis) setThesis(scorecard.investmentThesis);
+        if (scorecard.exitCriteria) setExitRules(scorecard.exitCriteria);
+        if (scorecard.userNotes) setNotes(scorecard.userNotes);
+      } catch (err) {
+        console.error('Failed to parse existing scorecard JSON:', err);
+      }
+    } else {
+      // Auto-load computed suggestions for the selected symbol
+      const loadSuggestions = async () => {
+        setIsLoadingSuggestions(true);
+        try {
+          const res = await fetch(`http://localhost:8080/api/scorecard/${encodeURIComponent(symbol.toUpperCase())}/auto-suggest`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.categoryRatings) {
+              setRatings((prev) => ({ ...prev, ...data.categoryRatings }));
+            } else if (data.categoryScoresJson) {
+              const parsed = typeof data.categoryScoresJson === 'string' ? JSON.parse(data.categoryScoresJson) : data.categoryScoresJson;
+              setRatings((prev) => ({ ...prev, ...parsed }));
+            }
+            if (data.investmentThesis) setThesis(data.investmentThesis);
+            if (data.exitCriteria) setExitRules(data.exitCriteria);
+          }
+        } catch (err) {
+          console.error('Failed to auto-suggest scorecard ratings:', err);
+        } finally {
+          setIsLoadingSuggestions(false);
+        }
+      };
+      loadSuggestions();
+    }
+  }, [symbol, scorecard]);
 
   // Calculate live total score (out of 50.0)
   const calculateTotalScore = () => {
@@ -72,6 +114,28 @@ export default function ScorecardWorksheet({ symbol, scorecard, onSave }: Props)
     setRatings((prev) => ({ ...prev, [id]: val }));
   };
 
+  const handleManualAutoSuggest = async () => {
+    setIsLoadingSuggestions(true);
+    try {
+      const res = await fetch(`http://localhost:8080/api/scorecard/${encodeURIComponent(symbol.toUpperCase())}/auto-suggest`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.categoryRatings) {
+          setRatings((prev) => ({ ...prev, ...data.categoryRatings }));
+        } else if (data.categoryScoresJson) {
+          const parsed = typeof data.categoryScoresJson === 'string' ? JSON.parse(data.categoryScoresJson) : data.categoryScoresJson;
+          setRatings((prev) => ({ ...prev, ...parsed }));
+        }
+        if (data.investmentThesis) setThesis(data.investmentThesis);
+        if (data.exitCriteria) setExitRules(data.exitCriteria);
+      }
+    } catch (err) {
+      console.error('Failed to manually fetch auto-suggest scorecard:', err);
+    } finally {
+      setIsLoadingSuggestions(false);
+    }
+  };
+
   return (
     <div className="w-full bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-2xl font-mono text-slate-200">
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6 border-b border-slate-800 pb-4">
@@ -87,22 +151,13 @@ export default function ScorecardWorksheet({ symbol, scorecard, onSave }: Props)
 
         <div className="flex flex-wrap items-center gap-3">
           <button
-            onClick={async () => {
-              try {
-                const res = await fetch(`http://localhost:8080/api/scorecard/${symbol}/auto-suggest`);
-                if (res.ok) {
-                  const suggested = await res.json();
-                  setRatings((prev) => ({ ...prev, ...suggested }));
-                }
-              } catch (err) {
-                console.error('Failed to fetch auto-suggest scorecard:', err);
-              }
-            }}
-            className="px-4 py-2 rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs flex items-center space-x-1.5 shadow-lg transition-all"
+            onClick={handleManualAutoSuggest}
+            disabled={isLoadingSuggestions}
+            className="px-4 py-2 rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs flex items-center space-x-1.5 shadow-lg transition-all disabled:opacity-50"
             title="Auto-evaluate scorecard based on real-time fundamentals & technical indicators"
           >
-            <Sparkles className="w-4 h-4" />
-            <span>⚡ Auto-Evaluate with Real Data</span>
+            <Sparkles className={`w-4 h-4 ${isLoadingSuggestions ? 'animate-spin' : ''}`} />
+            <span>{isLoadingSuggestions ? 'Evaluating...' : '⚡ Auto-Evaluate with Real Data'}</span>
           </button>
 
           <div className={`px-4 py-2 rounded-lg border font-bold text-sm shadow-inner flex items-center space-x-2 ${bandInfo.style}`}>
@@ -124,7 +179,7 @@ export default function ScorecardWorksheet({ symbol, scorecard, onSave }: Props)
       {/* Categories Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         {CATEGORIES.map((cat) => {
-          const rating = ratings[cat.id] || 0;
+          const rating = ratings[cat.id] ?? 3.0;
           return (
             <div
               key={cat.id}

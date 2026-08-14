@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.Map;
 
 @RestController
@@ -31,7 +32,7 @@ public class ScorecardController {
     }
 
     @GetMapping("/{symbol}/auto-suggest")
-    public ResponseEntity<StockScorecard> getAutoSuggestedScorecard(
+    public ResponseEntity<Map<String, Object>> getAutoSuggestedScorecard(
             @PathVariable String symbol,
             @RequestBody(required = false) TechnicalAnalysisDto technicals) {
 
@@ -46,7 +47,20 @@ public class ScorecardController {
                 "Pre-filled by system baseline auto-suggest service."
         );
 
-        return ResponseEntity.ok(calculated);
+        Map<String, Double> stringKeyedRatings = new HashMap<>();
+        suggestedRatings.forEach((k, v) -> stringKeyedRatings.put(k.name(), v));
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("symbol", upperSymbol);
+        response.put("categoryRatings", stringKeyedRatings);
+        response.put("totalScore", calculated.getTotalScore());
+        response.put("maxPossibleScore", calculated.getMaxPossibleScore());
+        response.put("recommendationBand", calculated.getRecommendationBand());
+        response.put("investmentThesis", calculated.getInvestmentThesis());
+        response.put("exitCriteria", calculated.getExitCriteria());
+        response.put("userNotes", calculated.getUserNotes());
+
+        return ResponseEntity.ok(response);
     }
 
     @PostMapping("/{symbol}")
