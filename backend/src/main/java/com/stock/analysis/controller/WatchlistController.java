@@ -30,8 +30,12 @@ public class WatchlistController {
     @PostMapping("/{symbol}/subscribe")
     public ResponseEntity<Map<String, Object>> subscribeSymbol(@PathVariable String symbol) {
         String upperSymbol = symbol.toUpperCase();
+        // Try NSE_EQ first, then NSE_INDEX (for NIFTY/BANKNIFTY), then broad name search
         Instrument instrument = instrumentRepository.findBySymbolAndExchange(upperSymbol, Exchange.NSE_EQ)
-                .orElseGet(() -> instrumentRepository.findBySymbolContainingIgnoreCase(upperSymbol).stream().findFirst()
+                .or(() -> instrumentRepository.findBySymbolAndExchange(upperSymbol, Exchange.NSE_INDEX))
+                .orElseGet(() -> instrumentRepository.findBySymbolContainingIgnoreCase(upperSymbol).stream()
+                        .filter(i -> i.getExchange() == Exchange.NSE_EQ || i.getExchange() == Exchange.NSE_INDEX)
+                        .findFirst()
                         .orElseThrow(() -> new MarketDataUnavailableException(upperSymbol, "Subscription", "Symbol not found in Instrument Master database.")));
 
         String key = instrument.getInstrumentKey();

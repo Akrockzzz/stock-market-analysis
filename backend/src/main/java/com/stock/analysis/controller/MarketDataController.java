@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
+import com.stock.analysis.enums.Exchange;
 
 @RestController
 @RequestMapping("/api/market")
@@ -51,7 +52,8 @@ public class MarketDataController {
         List<Candle> candles = new ArrayList<>(candleRepository.findRecentCandles(upperSymbol, interval, PageRequest.of(0, 100)));
 
         if (candles.isEmpty()) {
-            String instrumentKey = instrumentRepository.findBySymbolAndExchange(upperSymbol, Exchange.NSE_EQ)
+            String instrumentKey = instrumentRepository.findFirstBySymbolAndExchangeIn(
+                            upperSymbol, List.of(Exchange.NSE_EQ, Exchange.NSE_INDEX))
                     .map(Instrument::getInstrumentKey)
                     .orElse(null);
 

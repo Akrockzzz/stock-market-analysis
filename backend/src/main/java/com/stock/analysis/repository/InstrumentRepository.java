@@ -13,6 +13,7 @@ import java.util.Optional;
 @Repository
 public interface InstrumentRepository extends JpaRepository<Instrument, String> {
     Optional<Instrument> findBySymbolAndExchange(String symbol, Exchange exchange);
+    Optional<Instrument> findFirstBySymbolAndExchangeIn(String symbol, List<Exchange> exchanges);
     List<Instrument> findByUnderlyingSymbolAndInstrumentType(String underlyingSymbol, InstrumentType instrumentType);
     List<Instrument> findByUnderlyingSymbolAndExpiry(String underlyingSymbol, LocalDate expiry);
     List<Instrument> findBySymbolContainingIgnoreCase(String query);

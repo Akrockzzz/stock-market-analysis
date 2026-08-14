@@ -93,24 +93,35 @@ public class InstrumentMasterSyncService {
                         else if ("underlying_symbol".equals(fieldName) || "underlying_key".equals(fieldName)) underlyingSymbol = parser.getText();
                     }
 
-                    if (!"NSE_EQ".equalsIgnoreCase(exchangeStr) && !"NSE_FO".equalsIgnoreCase(exchangeStr)) {
-                        continue; // Filter to NSE Equity and F&O instruments
+                    // Accept NSE Equity, F&O, and Index instruments
+                    boolean isNseEq = "NSE_EQ".equalsIgnoreCase(exchangeStr);
+                    boolean isNseFo = "NSE_FO".equalsIgnoreCase(exchangeStr);
+                    boolean isNseIndex = "NSE_INDEX".equalsIgnoreCase(exchangeStr);
+                    if (!isNseEq && !isNseFo && !isNseIndex) {
+                        continue;
                     }
 
                     if (instrumentKey != null && symbol != null) {
-                        InstrumentType type = InstrumentType.EQUITY;
-                        if ("FUT".equalsIgnoreCase(instrumentTypeStr) || "FUTIVX".equalsIgnoreCase(instrumentTypeStr)) type = InstrumentType.FUTURES;
-                        else if ("CE".equalsIgnoreCase(instrumentTypeStr)) type = InstrumentType.CE;
-                        else if ("PE".equalsIgnoreCase(instrumentTypeStr)) type = InstrumentType.PE;
-
                         LocalDate expiry = (expiryStr != null && !expiryStr.isBlank()) ? parseExpiry(expiryStr) : null;
+
+                        Exchange exch;
+                        if (isNseFo) exch = Exchange.NSE_FO;
+                        else if (isNseIndex) exch = Exchange.NSE_INDEX;
+                        else exch = Exchange.NSE_EQ;
+
+                        InstrumentType resolvedType;
+                        if (isNseIndex) resolvedType = InstrumentType.INDEX;
+                        else if ("FUT".equalsIgnoreCase(instrumentTypeStr) || "FUTIVX".equalsIgnoreCase(instrumentTypeStr)) resolvedType = InstrumentType.FUTURES;
+                        else if ("CE".equalsIgnoreCase(instrumentTypeStr)) resolvedType = InstrumentType.CE;
+                        else if ("PE".equalsIgnoreCase(instrumentTypeStr)) resolvedType = InstrumentType.PE;
+                        else resolvedType = InstrumentType.EQUITY;
 
                         Instrument instrument = Instrument.builder()
                                 .instrumentKey(instrumentKey)
-                                .exchange("NSE_EQ".equalsIgnoreCase(exchangeStr) ? Exchange.NSE_EQ : Exchange.NSE_FO)
+                                .exchange(exch)
                                 .symbol(symbol)
                                 .name(name)
-                                .instrumentType(type)
+                                .instrumentType(resolvedType)
                                 .lotSize(lotSize)
                                 .strikePrice(strikePrice)
                                 .expiry(expiry)
@@ -145,7 +156,10 @@ public class InstrumentMasterSyncService {
                 Instrument.builder().instrumentKey("NSE_EQ|INE467B01029").symbol("TCS").name("Tata Consultancy Services Limited").exchange(Exchange.NSE_EQ).instrumentType(InstrumentType.EQUITY).lotSize(1).tickSize(0.05).build(),
                 Instrument.builder().instrumentKey("NSE_EQ|INE009A01021").symbol("INFY").name("Infosys Limited").exchange(Exchange.NSE_EQ).instrumentType(InstrumentType.EQUITY).lotSize(1).tickSize(0.05).build(),
                 Instrument.builder().instrumentKey("NSE_EQ|INE040A01034").symbol("HDFCBANK").name("HDFC Bank Limited").exchange(Exchange.NSE_EQ).instrumentType(InstrumentType.EQUITY).lotSize(1).tickSize(0.05).build(),
-                Instrument.builder().instrumentKey("NSE_INDEX|Nifty 50").symbol("NIFTY").name("NIFTY 50 Index").exchange(Exchange.NSE_EQ).instrumentType(InstrumentType.EQUITY).lotSize(50).tickSize(0.05).build()
+                Instrument.builder().instrumentKey("NSE_EQ|INE155A01022").symbol("TATAMOTORS").name("Tata Motors Limited").exchange(Exchange.NSE_EQ).instrumentType(InstrumentType.EQUITY).lotSize(1).tickSize(0.05).build(),
+                Instrument.builder().instrumentKey("NSE_EQ|INE062A01020").symbol("SBIN").name("State Bank of India").exchange(Exchange.NSE_EQ).instrumentType(InstrumentType.EQUITY).lotSize(1).tickSize(0.05).build(),
+                Instrument.builder().instrumentKey("NSE_INDEX|Nifty 50").symbol("NIFTY").name("NIFTY 50 Index").exchange(Exchange.NSE_INDEX).instrumentType(InstrumentType.INDEX).lotSize(75).tickSize(0.05).build(),
+                Instrument.builder().instrumentKey("NSE_INDEX|Nifty Bank").symbol("BANKNIFTY").name("NIFTY Bank Index").exchange(Exchange.NSE_INDEX).instrumentType(InstrumentType.INDEX).lotSize(30).tickSize(0.05).build()
         );
         instrumentRepository.saveAll(seeds);
     }

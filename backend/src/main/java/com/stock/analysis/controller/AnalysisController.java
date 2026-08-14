@@ -52,7 +52,7 @@ public class AnalysisController {
         List<Candle> candles = new java.util.ArrayList<>(candleRepository.findRecentCandles(upperSymbol, "1d", PageRequest.of(0, 200)));
 
         if (candles.isEmpty()) {
-            instrumentRepository.findBySymbolAndExchange(upperSymbol, Exchange.NSE_EQ)
+            instrumentRepository.findFirstBySymbolAndExchangeIn(upperSymbol, List.of(Exchange.NSE_EQ, Exchange.NSE_INDEX))
                     .ifPresent(instrument -> historicalDataSyncService.fetchAndStoreHistoricalCandles(
                             upperSymbol, instrument.getInstrumentKey(), "1d", LocalDate.now().minusYears(1), LocalDate.now()));
 
